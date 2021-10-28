@@ -1,0 +1,13 @@
+name = "AstronomicalDetectors"
+uuid = "482535f4-4eff-4998-8428-5ff2b5e59f9e"
+authors = ["Éric Thiébaut <eric.thiebaut@univ-lyon1.fr> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
