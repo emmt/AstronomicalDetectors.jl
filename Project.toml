@@ -10,8 +10,9 @@ ScientificDetectors = "7137afbe-ade3-4903-9296-05966c540d95"
 SimpleExpressions = "bfa79951-833f-460b-a5a3-57213acc08ae"
 
 [compat]
-julia = "1"
+FITSIO = "0.16"
 ScientificDetectors = "0.3"
+julia = "1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
