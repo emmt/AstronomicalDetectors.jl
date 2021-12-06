@@ -1,7 +1,7 @@
 title: SPHERE IRDIS calibration
 
 suffixes: [.fits, .fits.gz,.fits.Z]
-include sub directory: true
+include subdirectory: true
 exclude files: M.
 
 
