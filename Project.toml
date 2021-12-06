@@ -8,6 +8,7 @@ EasyFITS = "a977f4a2-36a7-4172-89e7-19c2726f82e5"
 FITSIO = "525bcba6-941b-5504-bd06-fd0dc1a4d2eb"
 ScientificDetectors = "7137afbe-ade3-4903-9296-05966c540d95"
 SimpleExpressions = "bfa79951-833f-460b-a5a3-57213acc08ae"
+YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [compat]
 FITSIO = "0.16"

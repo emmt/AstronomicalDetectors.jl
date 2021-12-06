@@ -17,16 +17,20 @@ export
     CalibrationCategory,
     CalibrationData,
     CalibrationInformation,
-    ReducedCalibration,
-    scan_calibrations
+    scan_calibrations,
+    ReadCalibrationFiles
 
 using FITSIO, EasyFITS
+using EasyFITS: FitsHeader
+
 using SimpleExpressions
-#import SimpleExpressions: compile
 
 using ScientificDetectors
 using ScientificDetectors: CalibrationCategory
 
+
+include("ReadCalibration.jl")
+import .YAMLCalibrationFiles: ReadCalibrationFiles
 
 struct CalibrationInformation
     path::String             # FITS file
@@ -156,11 +160,11 @@ function default_scanner(filename::AbstractString,
     elseif cat == "SKY"
         expr = :(dark + sky)
     else
-        error("unknown calibration category: \"", cat, "\" in file \"",
-              filename, "\"")
+        @warn "unknown calibration category: \"", cat, "\" in file \"", filename, "\""
+        expr = :(dark + $cat)
+        return
     end
-    return CalibrationInformation(filename, dims, Δt,
-                                  CalibrationCategory(cat, expr))
+    return CalibrationInformation(filename, dims, Δt,CalibrationCategory(cat, expr))
 end
 
 """
