@@ -1,0 +1,46 @@
+title: GRAVITY acquisition detector calibration
+
+dir: /Users/ferreol/Data/Gravity+/2020-03-09_MEDIUM_COMBINED/
+suffixes: [.fits, .fits.gz,.fits.Z]
+include subdirectory: true
+exclude files: M.
+
+exptime: "ESO DET1 SEQ1 DIT"
+hdu: "IMAGING_DATA_ACQ"
+
+categories:
+  DARK:
+    ESO DPR TYPE: DARK
+    sources: dark
+
+  FLAT1:
+    ESO DPR TYPE:  FLAT
+    ESO INS SHUT11 ST: true
+    ESO INS SHUT12 ST: false
+    ESO INS SHUT13 ST: false
+    ESO INS SHUT14 ST: false
+    sources: dark + flat1
+
+  FLAT2:
+    ESO DPR TYPE:  FLAT
+    ESO INS SHUT11 ST: false
+    ESO INS SHUT12 ST: true
+    ESO INS SHUT13 ST: false
+    ESO INS SHUT14 ST: false
+    sources: dark + flat2
+
+  FLAT3:
+    ESO DPR TYPE:  FLAT
+    ESO INS SHUT11 ST: false
+    ESO INS SHUT12 ST: false
+    ESO INS SHUT13 ST: true
+    ESO INS SHUT14 ST: false
+    sources: dark + flat3
+
+  FLAT4:
+    ESO DPR TYPE:  FLAT
+    ESO INS SHUT11 ST: false
+    ESO INS SHUT12 ST: false
+    ESO INS SHUT13 ST: false
+    ESO INS SHUT14 ST: true
+    sources: dark + flat4

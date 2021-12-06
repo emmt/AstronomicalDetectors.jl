@@ -1,0 +1,34 @@
+title: SPHERE IRDIS calibration
+
+suffixes: [.fits, .fits.gz,.fits.Z]
+include sub directory: true
+exclude files: M.
+
+
+exptime: "ESO DET SEQ1 REALDIT"
+
+
+categories:
+  DARK:
+    ESO DPR TYPE: DARK
+    sources: dark
+
+  BACKGROUND:
+    ESO DPR TYPE: DARK,BACKGROUND
+    sources: dark + background
+
+  FLAT:
+    ESO DPR TYPE:  FLAT
+    sources: flat + dark
+
+  WAVE:
+    ESO DPR TYPE:  ["LAMP,WAVE","WAVE,LAMP"]
+    sources: dark + wave
+
+  SKY:
+    ESO DPR TYPE:  SKY
+    sources: dark + background + sky
+
+  OBJECT:
+    ESO DPR TYPE:  STD,SINGLE
+    sources: dark + background + sky + object
