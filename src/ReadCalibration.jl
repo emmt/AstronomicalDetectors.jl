@@ -1,7 +1,9 @@
 module YAMLCalibrationFiles
 
 using EasyFITS: FitsHeader
-using YAML
+
+using ScientificDetectors
+using YAML, FITSIO
 
 """
 	fill_filedict!(filedict,catdict,dir)
@@ -41,7 +43,7 @@ end
 Overloading of Base.contains for vectors of string. Return `true` if a `chain`
 contains one of the patterns given in `pattern`
 """
-function Base.contains(chain::Union{AbstractString,Vector{AbstractString}}, pattern::Vector{AbstractString})
+function Base.contains(chain::Union{String,Vector{String}}, pattern::Vector{String})
 	for str in pattern
 		if contains(chain,str)
 			return true
@@ -51,12 +53,12 @@ function Base.contains(chain::Union{AbstractString,Vector{AbstractString}}, patt
 end
 
 """
-	contains(chain::Vector{AbstractString}, pattern::AbstractString)
+	contains(chain::Vector{String}, pattern::String)
 
 Overloading of Base.contains for vectors of string. Return `true` if one of the `chains`
 contains `pattern`
 """
-function Base.contains(chains::Vector{AbstractString}, pattern::AbstractString)
+function Base.contains(chains::Vector{String}, pattern::AbstractString)
 	for chain in chains
 		if contains(chain,pattern)
 			return true
@@ -68,12 +70,12 @@ end
 
 
 """
-	endswith(chain::Union{AbstractString,Vector{AbstractString}}, pattern::Vector{AbstractString})
+	endswith(chain::Union{String,Vector{String}}, pattern::Vector{String})
 
 Overloading of Base.endswith for vectors of string. Return `true` if `chain`
 ends with one of the patterns given in `pattern`
 """
-function Base.endswith(chain::Union{AbstractString,Vector{AbstractString}}, pattern::Vector{String})
+function Base.endswith(chain::Union{String,Vector{String}}, pattern::Vector{String})
 	for str in pattern
 		if endswith(chain,str)
 			return true
@@ -83,12 +85,12 @@ function Base.endswith(chain::Union{AbstractString,Vector{AbstractString}}, patt
 end
 
 """
-	endswith(chain::Vector{AbstractString}, pattern::AbstractString)
+	endswith(chain::Vector{String}, pattern::String)
 
 Overloading of Base.endswith for vectors of string. Return `true` if `chain`
 ends with `pattern`
 """
-function Base.endswith(chains::Vector{AbstractString},pattern::AbstractString)
+function Base.endswith(chains::Vector{String},pattern::AbstractString)
 	for chain in chains
 		if endswith(chain,pattern)
 			return true
@@ -145,7 +147,7 @@ Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` 
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
 						catdict::Dict{String, Any})
-	filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)"
+	filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)"
 	keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
 	if length(keydict)>0
 		for (keyword,value) in keydict
