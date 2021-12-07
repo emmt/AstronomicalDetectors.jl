@@ -235,4 +235,11 @@ function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:)
 	return caldat
 end
 
+function Base.push!(A::CalibrationData{T,N}, args::CalibrationFrameSampler) where {T<:AbstractFloat,N}
+    for x in args
+        push!(A, x)
+    end
+    return A
+end
+
 end
