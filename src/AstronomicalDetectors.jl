@@ -145,16 +145,16 @@ function default_scanner(filename::AbstractString,
     elseif cat == "DARK,BACKGROUND"
         expr = :(dark + background)
     elseif cat == "FLAT,LAMP"
-        expr = :(dark + flat)
+        expr = :(dark + background + flat)
     elseif cat == "LAMP,WAVE"
-        expr = :(dark + wave)
+        expr = :(dark + background + wave)
     elseif cat == "OBJECT"
         # Use object's name as source and category.
         cat =  uppercase(strip(get(String, hdr, "OBJECT")))
         object = Symbol(lowercase(cat))
-        expr = :(dark + background + sky + $object)
+        expr = :(dark + sky + $object)
     elseif cat == "SKY"
-        expr = :(dark + background + sky)
+        expr = :(dark + sky)
     else
         error("unknown calibration category: \"", cat, "\" in file \"",
               filename, "\"")
