@@ -4,6 +4,7 @@ using EasyFITS: FitsHeader
 
 using ScientificDetectors
 using YAML, FITSIO
+using ScientificDetectors:CalibrationFrameSampler
 
 """
 	fill_filedict!(filedict,catdict,dir)
@@ -19,7 +20,9 @@ function fill_filedict!(filedict::Dict{String, FitsHeader},
 		if !contains(filename,catdict["exclude files"])
 			if isfile(filename)
 				if endswith(filename,catdict["suffixes"])
-					get!(filedict, filename, read(FitsHeader, filename))
+					get!(filedict, filename) do
+						read(FitsHeader, filename)
+					end
 				end
 			end
 		elseif isdir(filename) && filedict["include sub directory"]
@@ -200,7 +203,6 @@ function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:)
 	isfirst = true
 	width, height = -1, -1
 
-
 	for (cat,value) in calibdict["categories"]
 		catdict =default_category_dict(calibdict)
 		merge!(catdict, value)
@@ -222,12 +224,18 @@ function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:)
 					width == size(hdu,1)|| error("incompatible sizes")
 					height == size(hdu,2) || error("incompatible sizes")
 				end
+				if ndims(hdu)==2
+					data = read(hdu, inds...)
+					sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],data;roi=roi)
+				else
 				data = read(hdu, (inds...,Base.OneTo(size(hdu,3)))...)
+
 				if size(hdu,3)>1
 					sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]])
 				else
 					sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],view(data, inds..., 1);roi=roi)
 				end
+			end
 				push!(caldat, sampler)
 			end
 		end
