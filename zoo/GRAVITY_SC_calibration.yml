@@ -1,8 +1,8 @@
 title: GRAVITY science detector calibration
 
-dir: /Users/ferreol/Data/Gravity+/2020-03-09_MEDIUM_COMBINED/
+
 suffixes: [.fits, .fits.gz,.fits.Z]
-include subdirectory: true
+include subdirectory: false
 exclude files: M.
 
 exptime: "ESO DET2 SEQ1 DIT"
@@ -44,3 +44,7 @@ categories:
     ESO INS SHUT13 ST: false
     ESO INS SHUT14 ST: true
     sources: dark + flat4
+
+  SKY:
+    ESO DPR TYPE:  SKY,DUAL
+    sources: sky
