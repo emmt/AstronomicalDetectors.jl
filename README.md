@@ -16,7 +16,15 @@ calib = ReducedCalibration(data)
 
 To deal with the numerous configuration of the different instruments, all calibrations files and keywords can be described in a YAML configuration file (see in the [config zoo folder](zoo)).
 
-A YAML file can be as follow :
+Usage:
+
+```julia
+using AstronomicalDetectors, ScientificDetectors
+data = ReadCalibrationFiles("ymlfile.yml"; dir="path/to/calib/folder")
+calib = ReducedCalibration(data)
+```
+
+A YAML file should be as follow :
 
 ```yaml
 title: Detector calibration
