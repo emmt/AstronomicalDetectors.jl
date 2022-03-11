@@ -1,0 +1,41 @@
+title: ZIMPOL detector calibration
+
+
+suffixes: [.fits, .fits.gz,.fits.Z]
+include subdirectory: true
+exclude files: M.
+
+exptime: "ESO DET DIT1"
+hdu: "Callas"
+
+categories:
+  DARK:
+    ESO DPR TYPE: DARK
+    sources: dark
+
+  FLATNR:
+    ESO DPR TYPE:  'FLAT,LAMP'
+    ESO INS3 OPTI5 NAME: N_R
+    sources:  dark + flatN_R
+
+  FLATV:
+    ESO DPR TYPE:  'FLAT,LAMP'
+    ESO INS3 OPTI5 NAME: V
+    sources:  dark + flatV
+
+  FLATCntHa:
+    ESO DPR TYPE:  'FLAT,LAMP'
+    ESO INS3 OPTI5 NAME: CntHa
+    sources:  dark + flatCntHa
+
+  FLATNI:
+    ESO DPR TYPE:  'FLAT,LAMP'
+    ESO INS3 OPTI5 NAME: N_I
+    sources:  dark + flatN_I
+
+  BIAS:
+    ESO DPR TYPE:  BIAS
+    sources: bias
+  # SKY:
+  #   ESO DPR TYPE:  SKY,SINGLE
+  #   sources: dark + sky
