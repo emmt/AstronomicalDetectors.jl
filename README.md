@@ -8,7 +8,7 @@ Example of usage:
 ```julia
 using AstronomicalDetectors, Glob
 list = scan_calibrations(glob("SPHER.2015-12-2*", dir))
-data = read(CalibrationData{Float64}, list; part=(501:580,601:650))
+data = read(CalibrationData{Float64}, list; roi=(501:580,601:650))
 calib = ReducedCalibration(data)
 ```
 
