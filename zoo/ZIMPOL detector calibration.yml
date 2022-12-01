@@ -6,7 +6,8 @@ include subdirectory: true
 exclude files: M.
 
 exptime: "ESO DET DIT1"
-hdu: "Callas"
+hdu: "Callas" #Bartolli
+roi: (26:(512+25),9:2:(1024-8))
 
 categories:
   DARK:
@@ -35,7 +36,7 @@ categories:
 
   BIAS:
     ESO DPR TYPE:  BIAS
-    sources: bias
+    sources: dark
   # SKY:
   #   ESO DPR TYPE:  SKY,SINGLE
   #   sources: dark + sky
