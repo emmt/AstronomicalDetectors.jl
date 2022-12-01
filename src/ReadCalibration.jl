@@ -191,7 +191,7 @@ Return an instance of `CalibrationData` with all information statistics needed t
 """
 function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd())
 
-	calibdict = default_calibdict(dir,roi)
+	calibdict = default_calibdict(dir,repr(roi))
 	#merge!(calibdict,vararg)
 	merge!(calibdict,YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
 
