@@ -178,17 +178,17 @@ function default_category_dict(calibdict::Dict{String, Any})
 end
 
 """
-	ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:),  dir=pwd())
+	ReadCalibrationFiles(yaml_file::AbstractString; roi::NTuple{2} = (:,:),  dir=pwd())
 
 Process calibration files according to the YAML configuration file `yaml_file`.
 
-- `part` keyword can be used to consider only a part of the detector (e.g. `part=(1:100,1:100)`) default `part=(:,:)`
+- `roi` keyword can be used to consider only a region of interest of the detector (e.g. `roi=(1:100,1:2:100)`) default `roi=(:,:)`
 
 - `dir` is the directory containing the files. By default `dir=pwd()`. This keyword is overriden by the `dir` in the YAML config file
 
 Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
 """
-function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:),  dir = pwd())
+function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd())
 
 	calibdict = default_calibdict(dir)
 	#merge!(calibdict,vararg)
@@ -198,8 +198,8 @@ function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:)
 
 	catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in calibdict["categories"] ]
 	local caldat::CalibrationData{Float64}
-	local roi::DetectorAxes
-	local inds::Tuple{Base.OneTo{Int64}, Base.OneTo{Int64}}
+	local dataroi::DetectorAxes
+	local inds::Tuple{OrdinalRange, OrdinalRange}
 	isfirst = true
 	width, height = -1, -1
 
@@ -212,13 +212,13 @@ function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:)
 		if !isempty(filescat)
 			for (filename,fitshead) in filescat
 				hdu = FITS(filename)[catdict["hdu"]] :: ImageHDU
-
+				
 				if isfirst
 					width, height = size(hdu)
-					inds = (Base.OneTo(width)[part[1]],
-					Base.OneTo(height)[part[2]])
-					roi = DetectorAxes(inds)
-					caldat = CalibrationData{Float64}(roi,catarr)
+					inds = (Base.OneTo(width)[roi[1]],
+					Base.OneTo(height)[roi[2]])
+					dataroi = DetectorAxes(inds)
+					caldat = CalibrationData{Float64}(dataroi,catarr)
 					isfirst = false
 				else
 					width == size(hdu,1)|| error("incompatible sizes")
@@ -226,16 +226,16 @@ function ReadCalibrationFiles(yaml_file::AbstractString; part::NTuple{2} = (:,:)
 				end
 				if ndims(hdu)==2
 					data = read(hdu, inds...)
-					sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],data;roi=roi)
+					sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],data;roi=dataroi)
 				else
-				data = read(hdu, (inds...,Base.OneTo(size(hdu,3)))...)
-
-				if size(hdu,3)>1
-					sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]])
-				else
-					sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],view(data, inds..., 1);roi=roi)
+					data = read(hdu, (inds...,Base.OneTo(size(hdu,3)))...)
+					
+					if size(hdu,3)>1
+						sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]];roi=dataroi)
+					else
+						sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],view(data, :,:, 1);roi=dataroi)
+					end
 				end
-			end
 				push!(caldat, sampler)
 			end
 		end
