@@ -150,7 +150,7 @@ Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` 
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
 						catdict::Dict{String, Any})
-	filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)"
+	filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
 	keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
 	if length(keydict)>0
 		for (keyword,value) in keydict
@@ -160,13 +160,14 @@ function  filterkeyword(filelist::Dict{String, FitsHeader},
 	return filelist
 end
 
-function default_calibdict(dir::AbstractString)
+function default_calibdict(dir::AbstractString,roi)
 	calibdict = Dict{String, Any}()
 	calibdict["dir"] = dir
 	calibdict["hdu"] = 1
 	calibdict["suffixes"] = [".fits", ".fits.gz","fits.Z"]
 	calibdict["include subdirectory"] = true
 	calibdict["exclude files"] = Vector{String}()
+	calibdict["roi"] = roi
 	return calibdict
 end
 
@@ -190,7 +191,7 @@ Return an instance of `CalibrationData` with all information statistics needed t
 """
 function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd())
 
-	calibdict = default_calibdict(dir)
+	calibdict = default_calibdict(dir,roi)
 	#merge!(calibdict,vararg)
 	merge!(calibdict,YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
 
@@ -215,8 +216,8 @@ function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd
 				
 				if isfirst
 					width, height = size(hdu)
-					inds = (Base.OneTo(width)[roi[1]],
-					Base.OneTo(height)[roi[2]])
+					inds = (Base.OneTo(width)[eval(Meta.parse(catdict["roi"]))[1]],
+					Base.OneTo(height)[eval(Meta.parse(catdict["roi"]))[2]])
 					dataroi = DetectorAxes(inds)
 					caldat = CalibrationData{Float64}(dataroi,catarr)
 					isfirst = false
