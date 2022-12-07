@@ -5,6 +5,7 @@ using EasyFITS: FitsHeader
 using ScientificDetectors
 using YAML, FITSIO
 using ScientificDetectors:CalibrationFrameSampler
+import ScientificDetectors.Calibration: prunecalibration
 
 """
 	fill_filedict!(filedict,catdict,dir)
@@ -187,9 +188,11 @@ Process calibration files according to the YAML configuration file `yaml_file`.
 
 - `dir` is the directory containing the files. By default `dir=pwd()`. This keyword is overriden by the `dir` in the YAML config file
 
+- `prune`  by default `prune=true` remove empty categories and sources
+
 Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
 """
-function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd())
+function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd(), prune=true)
 
 	calibdict = default_calibdict(dir,repr(roi))
 	#merge!(calibdict,vararg)
@@ -241,6 +244,10 @@ function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd
 			end
 		end
 	end
+	if prune
+		caldat = prunecalibration(caldat)
+	end 
+
 	return caldat
 end
 
