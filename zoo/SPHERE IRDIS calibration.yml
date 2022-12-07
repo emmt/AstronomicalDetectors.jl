@@ -9,9 +9,10 @@ exptime: "ESO DET SEQ1 REALDIT"
 
 
 categories:
-  DARK:
+  DARK_DB_K12:
     ESO DPR TYPE: DARK
-    sources: dark
+    ESO INS COMB IFLT: DB_K12
+    sources: dark 
 
   BACKGROUND:
     ESO DPR TYPE: DARK,BACKGROUND
