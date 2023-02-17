@@ -1,7 +1,5 @@
 module YAMLCalibrationFiles
 
-using EasyFITS: FitsHeader
-
 using ScientificDetectors
 using YAML, FITSIO
 using ScientificDetectors:CalibrationFrameSampler
@@ -14,7 +12,7 @@ fill dictionary `filedict` with fitsheader of all files in `dir` according to th
 The dictionary  `filedict` key is the filepath.
 
 """
-function fill_filedict!(filedict::Dict{String, FitsHeader},
+function fill_filedict!(filedict::Dict{String, FITSHeader},
 						catdict::Dict{String, Any},
 						dir::String)
 	for filename in readdir(dir; join=true, sort=false)
@@ -22,7 +20,7 @@ function fill_filedict!(filedict::Dict{String, FitsHeader},
 			if isfile(filename)
 				if endswith(filename,catdict["suffixes"])
 					get!(filedict, filename) do
-						read(FitsHeader, filename)
+						read(FITSHeader, filename)
 					end
 				end
 			end
@@ -32,7 +30,7 @@ function fill_filedict!(filedict::Dict{String, FitsHeader},
 	end
 end
 
-function fill_filedict!(filedict::Dict{String, FitsHeader},
+function fill_filedict!(filedict::Dict{String, FITSHeader},
 						catdict::Dict{String, Any},
 						dirs::Vector{String})
 	for dir in dirs
@@ -109,11 +107,11 @@ end
 
 Remove all files from `filelist` that do not match the strings in `name`.
 """
-function filterfilename(filelist::Dict{String, FitsHeader},name::String)
+function filterfilename(filelist::Dict{String, FITSHeader},name::String)
 	return filterfilename(filelist,[name])
 end
 
-function filterfilename(filelist::Dict{String, FitsHeader},name::Vector{String})
+function filterfilename(filelist::Dict{String, FITSHeader},name::Vector{String})
 	pattern =Regex("("*join(name,")|(")*")")
 	return filter(p->match(pattern,p.first) !== nothing,filelist)
 end
@@ -124,23 +122,23 @@ end
 
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value`.
 """
-function filtercat(filelist::Dict{String, FitsHeader},
+function filtercat(filelist::Dict{String, FITSHeader},
 					keyword::String,
 					values::Union{Vector{String}, Vector{Bool}, Vector{Integer}, Vector{AbstractFloat}})
-	newlist = Dict{String, FitsHeader}()
+	newlist = Dict{String, FITSHeader}()
 	for value in values
 		merge!(newlist, filtercat(filelist,keyword,value))
 	end
 	return newlist
 end
 
-function filtercat(filelist::Dict{String, FitsHeader},
+function filtercat(filelist::Dict{String, FITSHeader},
 					keyword::String,
 					value::Union{String, Bool, Integer, AbstractFloat, Nothing})
 	try tmp = filter(p->p.second[keyword] == value,filelist)
 		return  tmp
 	catch
-		return Dict{String, FitsHeader}()
+		return Dict{String, FITSHeader}()
 	end
 end
 
@@ -149,7 +147,7 @@ end
 
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `catdict`
 """
-function  filterkeyword(filelist::Dict{String, FitsHeader},
+function  filterkeyword(filelist::Dict{String, FITSHeader},
 						catdict::Dict{String, Any})
 	filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
 	keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
@@ -198,7 +196,7 @@ function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd
 	#merge!(calibdict,vararg)
 	merge!(calibdict,YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
 
-	filedict = Dict{String, FitsHeader}()
+	filedict = Dict{String, FITSHeader}()
 
 	catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in calibdict["categories"] ]
 	local caldat::CalibrationData{Float64}

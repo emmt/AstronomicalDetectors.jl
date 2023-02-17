@@ -20,8 +20,7 @@ export
     scan_calibrations,
     ReadCalibrationFiles
 
-using FITSIO, EasyFITS
-using EasyFITS: FitsHeader
+using FITSIO
 
 using SimpleExpressions
 
@@ -125,7 +124,7 @@ end
 #    ESO DPR CATG = SCIENCE or CALIB
 #
 function default_scanner(filename::AbstractString,
-                         hdr::FitsHeader =  read(FitsHeader, filename);
+                         hdr::FITSHeader =  read(FITSHeader, filename);
                          exptime::AbstractString = "ESO DET SEQ1 REALDIT",
                          category::AbstractString = "ESO DPR TYPE")
 
