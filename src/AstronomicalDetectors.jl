@@ -20,8 +20,7 @@ export
     scan_calibrations,
     ReadCalibrationFiles
 
-using FITSIO, EasyFITS
-using EasyFITS: FitsHeader
+using EasyFITS: FitsFile, FitsHeader, FitsImageHDU
 
 using SimpleExpressions
 
@@ -125,25 +124,25 @@ end
 #    ESO DPR CATG = SCIENCE or CALIB
 #
 function default_scanner(filename::AbstractString,
-                         hdr::FitsHeader =  read(FitsHeader, filename);
+                         hdr::FitsHeader = read(FitsHeader, filename);
                          exptime::AbstractString = "ESO DET SEQ1 REALDIT",
                          category::AbstractString = "ESO DPR TYPE")
 
     # Get dimensions.
-    naxis = get(Int, hdr, "NAXIS")
+    naxis = hdr["NAXIS"].integer
     if !(2 ≤ naxis ≤ 3)
         error("other dimensions than 2D and 3D not implemented")
     end
-    dims = (get(Int, hdr, "NAXIS1"),
-            get(Int, hdr, "NAXIS2"),
-            (naxis == 2 ? 1 : get(Int, hdr, "NAXIS3")))
+    dims = (hdr["NAXIS1"].integer,
+            hdr["NAXIS2"].integer,
+            (naxis == 2 ? 1 : hdr["NAXIS3"].integer))
 
     # Get exposure time.
-    Δt = get(Float64, hdr, exptime)
+    Δt = hdr[exptime].float
 
     # Get category of calibration and provide the corresponding linear
     # combination of sources.
-    cat = uppercase(strip(get(String, hdr, category)))
+    cat = uppercase(strip(hdr[category].string))
     if cat == "DARK"
         expr = :(dark)
     elseif cat == "DARK,BACKGROUND"
@@ -154,7 +153,7 @@ function default_scanner(filename::AbstractString,
         expr = :(dark + background + wave)
     elseif cat == "OBJECT"
         # Use object's name as source and category.
-        cat =  uppercase(strip(get(String, hdr, "OBJECT")))
+        cat =  uppercase(strip(hdr["OBJECT"].string))
         object = Symbol(lowercase(cat))
         expr = :(dark + sky + $object)
     elseif cat == "SKY"
@@ -200,22 +199,24 @@ function Base.read(::Type{CalibrationData{T}},
     roi = DetectorAxes(inds)
     producer = Channel{CalibrationDataFrame{T,N}}() do chn
         for item in list
-            hdu = FITS(item.path)[1] :: ImageHDU
-            naxis = ndims(hdu)
-            width, height, nframes = item.dims
-            if naxis == N && nframes == 1
-                put!(chn, CalibrationDataFrame{T,N}(item.cat.name, item.Δt,
-                                                    read(hdu, inds...);
-                                                    roi = roi))
-            elseif naxis == N+1
-                for j in 1:nframes
+            FitsFile(item.path) do file
+                hdu = FitsImageHDU(file, 1)
+                naxis = hdu.data_ndims
+                width, height, nframes = item.dims
+                if naxis == N && nframes == 1
                     put!(chn, CalibrationDataFrame{T,N}(item.cat.name, item.Δt,
-                                                        read(hdu, inds..., j);
+                                                        read(hdu, inds...);
                                                         roi = roi))
+                elseif naxis == N+1
+                    for j in 1:nframes
+                        put!(chn, CalibrationDataFrame{T,N}(item.cat.name, item.Δt,
+                                                            read(hdu, inds..., j);
+                                                            roi = roi))
+                    end
+                else
+                    error("other dimensions than ", N, "-D and ",
+                          N+1, "-D not implemented")
                 end
-            else
-                error("other dimensions than ", N, "-D and ",
-                      N+1, "-D not implemented")
             end
         end
         close(chn)

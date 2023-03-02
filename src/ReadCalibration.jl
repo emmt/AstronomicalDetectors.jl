@@ -1,9 +1,8 @@
 module YAMLCalibrationFiles
 
-using EasyFITS: FitsHeader
-
+using EasyFITS: FitsFile, FitsHeader, FitsImageHDU
 using ScientificDetectors
-using YAML, FITSIO
+using YAML
 using ScientificDetectors:CalibrationFrameSampler
 import ScientificDetectors.Calibration: prunecalibration
 
@@ -15,21 +14,21 @@ The dictionary  `filedict` key is the filepath.
 
 """
 function fill_filedict!(filedict::Dict{String, FitsHeader},
-						catdict::Dict{String, Any},
-						dir::String)
-	for filename in readdir(dir; join=true, sort=false)
-		if !contains(filename,catdict["exclude files"])
-			if isfile(filename)
-				if endswith(filename,catdict["suffixes"])
-					get!(filedict, filename) do
-						read(FitsHeader, filename)
-					end
-				end
-			end
-		elseif isdir(filename) && filedict["include sub directory"]
-			fill_filedict!(catdict,filedict,filename)
-		end
-	end
+                        catdict::Dict{String, Any},
+                        dir::String)
+    for filename in readdir(dir; join=true, sort=false)
+        if !contains(filename,catdict["exclude files"])
+            if isfile(filename)
+                if endswith(filename,catdict["suffixes"])
+                    get!(filedict, filename) do
+                        read(FitsHeader, filename)
+                    end
+                end
+            end
+        elseif isdir(filename) && filedict["include sub directory"]
+            fill_filedict!(filedict, catdict, filename)
+        end
+    end
 end
 
 function fill_filedict!(filedict::Dict{String, FitsHeader},
@@ -122,7 +121,7 @@ end
 """
 	newlist = filtercat(filelist,keyword,value)
 
-Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value`.
+Build a `newlist` dictionnary of all files where `fitsheader[keyword].value() == value`.
 """
 function filtercat(filelist::Dict{String, FitsHeader},
 					keyword::String,
@@ -135,13 +134,12 @@ function filtercat(filelist::Dict{String, FitsHeader},
 end
 
 function filtercat(filelist::Dict{String, FitsHeader},
-					keyword::String,
-					value::Union{String, Bool, Integer, AbstractFloat, Nothing})
-	try tmp = filter(p->p.second[keyword] == value,filelist)
-		return  tmp
-	catch
-		return Dict{String, FitsHeader}()
-	end
+                    keyword::String,
+                    value::T) where {T<:Union{String,Bool,Integer,AbstractFloat,Nothing}}
+    try filter(p -> p.second[keyword].value(T) == value, filelist)
+    catch
+        return Dict{String, FitsHeader}()
+    end
 end
 
 """
@@ -215,32 +213,36 @@ function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd
 		filescat = filterkeyword(filedict,catdict)
 		if !isempty(filescat)
 			for (filename,fitshead) in filescat
-				hdu = FITS(filename)[catdict["hdu"]] :: ImageHDU
-				
-				if isfirst
-					width, height = size(hdu)
-					inds = (Base.OneTo(width)[eval(Meta.parse(catdict["roi"]))[1]],
-					Base.OneTo(height)[eval(Meta.parse(catdict["roi"]))[2]])
-					dataroi = DetectorAxes(inds)
-					caldat = CalibrationData{Float64}(dataroi,catarr)
-					isfirst = false
-				else
-					width == size(hdu,1)|| error("incompatible sizes")
-					height == size(hdu,2) || error("incompatible sizes")
+
+				FitsFile(filename) do file
+
+				    hdu = FitsImageHDU(file, Int(catdict["hdu"]))
+
+				    if isfirst
+					    width, height = hdu.data_size
+					    inds = (Base.OneTo(width)[eval(Meta.parse(catdict["roi"]))[1]],
+					    Base.OneTo(height)[eval(Meta.parse(catdict["roi"]))[2]])
+					    dataroi = DetectorAxes(inds)
+					    caldat = CalibrationData{Float64}(dataroi,catarr)
+					    isfirst = false
+				    else
+					    width  == hdu.data_size[1] || error("incompatible sizes")
+					    height == hdu.data_size[2] || error("incompatible sizes")
+				    end
+				    if hdu.data_ndims == 2
+					    data = read(hdu, inds...)
+					    sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]].float,data;roi=dataroi)
+				    else
+					    data = read(hdu, (inds...,Base.OneTo(hdu.data_size[3]))...)
+
+					    if hdu.data_size[3] > 1
+						    sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]].float;roi=dataroi)
+					    else
+						    sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]].float,view(data, :,:, 1);roi=dataroi)
+					    end
+				    end
+				    push!(caldat, sampler)
 				end
-				if ndims(hdu)==2
-					data = read(hdu, inds...)
-					sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],data;roi=dataroi)
-				else
-					data = read(hdu, (inds...,Base.OneTo(size(hdu,3)))...)
-					
-					if size(hdu,3)>1
-						sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]];roi=dataroi)
-					else
-						sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]],view(data, :,:, 1);roi=dataroi)
-					end
-				end
-				push!(caldat, sampler)
 			end
 		end
 	end
