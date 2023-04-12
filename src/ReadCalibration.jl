@@ -148,12 +148,20 @@ end
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `catdict`
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any})
+                        catdict::Dict{String, Any};
+                        verb::Bool=false)
     filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
     if length(keydict)>0
         for (keyword,value) in keydict
+            if verb
+                initialsize = length(filelist)
+            end
             filelist =  filtercat(filelist,keyword,value)
+            if verb
+                filteredsize = length(filelist)
+                @info "from $initialsize files, kept $filteredsize, by filter $keyword=$value"
+            end
         end
     end
     return filelist
@@ -188,9 +196,15 @@ Process calibration files according to the YAML configuration file `yaml_file`.
 
 - `prune`  by default `prune=true` remove empty categories and sources
 
+- `verb`  by default `verb=false` print information about filtering of files in categories
+
 Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
 """
-function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd(), prune=true)
+function ReadCalibrationFiles(yaml_file::AbstractString;
+                              roi = (:,:),
+                              dir = pwd(),
+                              prune::Bool=true,
+                              verb::Bool=false)
 
     calibdict = default_calibdict(dir,repr(roi))
     #merge!(calibdict,vararg)
@@ -210,7 +224,9 @@ function ReadCalibrationFiles(yaml_file::AbstractString; roi = (:,:),  dir = pwd
         merge!(catdict, value)
         fill_filedict!(filedict,calibdict,catdict["dir"])
         haskey(catdict,"files") && fill_filedict!(filedict,calibdict,catdict["files"])
-        filescat = filterkeyword(filedict,catdict)
+        verb && @info "category: $cat"
+        filescat = filterkeyword(filedict, catdict; verb=verb)
+        verb && (@info keys(filescat) ; @info "------------------")
         if !isempty(filescat)
             for (filename,fitshead) in filescat
 
