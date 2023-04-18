@@ -4,6 +4,7 @@ using EasyFITS: FitsFile, FitsHeader, FitsImageHDU
 using ScientificDetectors
 using YAML
 using ScientificDetectors:CalibrationFrameSampler
+using Dates
 import ScientificDetectors.Calibration: prunecalibration
 
 """
@@ -24,9 +25,9 @@ function fill_filedict!(filedict::Dict{String, FitsHeader},
                         read(FitsHeader, filename)
                     end
                 end
+            elseif isdir(filename) && catdict["include subdirectory"]
+                fill_filedict!(filedict, catdict, filename)
             end
-        elseif isdir(filename) && filedict["include sub directory"]
-            fill_filedict!(filedict, catdict, filename)
         end
     end
 end
@@ -117,30 +118,149 @@ function filterfilename(filelist::Dict{String, FitsHeader},name::Vector{String})
     return filter(p->match(pattern,p.first) !== nothing,filelist)
 end
 
-
 """
-    newlist = filtercat(filelist,keyword,value)
+    filtercat(filelist, keyword, targetvalue) -> filteredlist
 
-Build a `newlist` dictionnary of all files where `fitsheader[keyword].value() == value`.
+Creates a filtered list of `filelist`. Only files with card `keyword` with value `value` are kept.
+`targettype` serves as a join type between the target value and the header card.
 """
-function filtercat(filelist::Dict{String, FitsHeader},
-                    keyword::String,
-                    values::Union{Vector{String}, Vector{Bool}, Vector{Integer}, Vector{AbstractFloat}})
-    newlist = Dict{String, FitsHeader}()
-    for value in values
-        merge!(newlist, filtercat(filelist,keyword,value))
-    end
-    return newlist
-end
+function filtercat_singleval(filelist    ::Dict{String,FitsHeader},
+                             keyword     ::String,
+                             targetvalue ::T,
+                             targettype  ::Type{J}
+) ::Dict{String,FitsHeader} where {J, T<:J}
 
-function filtercat(filelist::Dict{String, FitsHeader},
-                    keyword::String,
-                    value::T) where {T<:Union{String,Bool,Integer,AbstractFloat,Nothing}}
-    try filter(p -> p.second[keyword].value(T) == value, filelist)
-    catch
-        return Dict{String, FitsHeader}()
+    return filter(filelist) do (filepath, header)
+        card = get(header, keyword, nothing)
+        card == nothing && return false
+        valtype(card) <: J || begin
+            @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
+            return false
+        end
+        return card.value(J) == targetvalue
     end
 end
+
+"""
+    filtercat(filelist, keyword, targetvalues) -> filteredlist
+
+Creates a filtered list of `filelist`. If at least one of the values is found, the file is kept.
+`targettype` serves as a join type between the target values and the header card.
+"""
+function filtercat_severalvals(filelist     ::Dict{String,FitsHeader},
+                               keyword      ::String,
+                               targetvalues ::Vector{T},
+                               targettype   ::Type{J}
+) ::Dict{String,FitsHeader} where {J, T<:J}
+
+    return filter(filelist) do (filepath, header)
+        card = get(header, keyword, nothing)
+        card == nothing && return false
+        valtype(card) <: J || begin
+            @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
+            return false
+        end
+        return card.value(J) in targetvalues
+    end
+end
+
+"""
+YAML library parsing of DateTimes is imperfect but we mimic it to stay consistent
+"""
+function parseDateTimelikeYAML(datestr::String) ::Union{DateTime,Nothing}
+    # trying to parse value into a DateTime
+    date = tryparse(DateTime, datestr)
+
+    if date == nothing
+        # some FITS use four digits for the milliseconds, contrary to the ISO format.
+        # we just remove the fourth digit, the YAML library do the same,
+        # so it is consistent with the Date values in the YAML file.
+        return tryparse(DateTime, chop(datestr))
+    else
+        return date
+    end
+end
+
+"""
+    filtercat(filelist, keyword, datemin, datemax) -> filteredlist
+
+Creates a filtered list of `filelist`. Only files with datemin <= file[keyword] < datemax are kept.
+"""
+function filtercat_daterange(filelist ::Dict{String,FitsHeader},
+                             keyword ::String,
+                             datemin ::Union{Date,DateTime},
+                             datemax ::Union{Date,DateTime}
+) ::Dict{String,FitsHeader}
+
+    return filter(filelist) do (filepath, header)
+
+        keyword in keys(header) || return false
+        cardval = header[keyword].value(String)
+
+        carddate = parseDateTimelikeYAML(cardval)
+
+        carddate == nothing && begin
+            @warn "keyword $keyword=$cardval cannot be parsed as DateTime in file $filepath"
+            return false
+        end
+        return (datemin <= carddate < datemax)
+    end
+end
+
+# supported types for single target values and eltype in vector target values
+# also used as join types, see `targettype` in filtercat_singleval()
+const SUPPORTED_VALUE_TYPES = [String, Bool, Integer, AbstractFloat]
+
+"""
+Filters the `filelist` to keep only files where keyword is of the target value.
+Target value can be of several kinds, see the doc.
+"""
+function filtercat(filelist::Dict{String,FitsHeader},
+                   keyword::String,
+                   targetvalue::Any
+) ::Dict{String,FitsHeader}
+
+    # case: single value of Complex type (unsupported)
+    targetvalue isa Complex && error("Complex values not yet implemented")
+
+    # case: single value of a supported type
+    i = findfirst(T -> targetvalue isa T, SUPPORTED_VALUE_TYPES)
+    i != nothing && return filtercat_singleval(filelist, keyword,
+                                               targetvalue, SUPPORTED_VALUE_TYPES[i])
+
+    # case: Vector of values
+    targetvalue isa Vector && begin
+
+        #  case Complex eltype (unsupported)
+        eltype(targetvalue) isa Complex && error("Complex values not yet implemented")
+
+        # case: supported eltype
+        i = findfirst(T -> eltype(targetvalue) <: T, SUPPORTED_VALUE_TYPES)
+        i != nothing && return filtercat_severalvals(filelist, keyword,
+                                                     targetvalue, SUPPORTED_VALUE_TYPES[i])
+
+        # case: fail
+        error("eltype $(eltype(targetvalue)) of the Vector target value is not supported")
+    end
+
+    # case: Dictionnary
+    targetvalue isa Dict && begin
+
+        # case: date range
+        ( length(targetvalue) == 2
+          && haskey(targetvalue, "min")
+          && haskey(targetvalue, "max")
+          && targetvalue["min"] isa Union{Date,DateTime}
+          && targetvalue["max"] isa Union{Date,DateTime}
+        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"])
+
+        # case: fail
+        error("wrong Dictionnary targetvalue $targetvalue ; only date ranges are supported")
+    end
+
+    error(string("unsupported target value type ", typeof(targetvalue)))
+end
+
 
 """
     newlist = filtercat(filelist::Dict{String, FitsHeader},catdict::Dict{String, Any})
@@ -171,7 +291,7 @@ function default_calibdict(dir::AbstractString,roi)
     calibdict = Dict{String, Any}()
     calibdict["dir"] = dir
     calibdict["hdu"] = 1
-    calibdict["suffixes"] = [".fits", ".fits.gz","fits.Z"]
+    calibdict["suffixes"] = [".fits", ".fits.gz", ".fits.Z"]
     calibdict["include subdirectory"] = true
     calibdict["exclude files"] = Vector{String}()
     calibdict["roi"] = roi
@@ -179,7 +299,7 @@ function default_calibdict(dir::AbstractString,roi)
 end
 
 function default_category_dict(calibdict::Dict{String, Any})
-    filteredkeywords = "(categories)|(title)";
+    filteredkeywords = "(categories)";
     catdict  = Dict{String, Any}()
     merge!(catdict,filter(p->match(Regex(filteredkeywords), p.first) === nothing,calibdict));
     return catdict
@@ -222,6 +342,7 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     for (cat,value) in calibdict["categories"]
         catdict =default_category_dict(calibdict)
         merge!(catdict, value)
+        empty!(filedict)
         fill_filedict!(filedict,calibdict,catdict["dir"])
         haskey(catdict,"files") && fill_filedict!(filedict,calibdict,catdict["files"])
         verb && @info "category: $cat"

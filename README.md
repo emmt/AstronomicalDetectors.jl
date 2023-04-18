@@ -27,13 +27,15 @@ calib = ReducedCalibration(data)
 A YAML file should be as follow :
 
 ```yaml
-title: Detector calibration
-
 suffixes: [.fits, .fits.gz,.fits.Z]
 include subdirectory: true
 exclude files: M.
 
 exptime: "ESO DET1 SEQ1 DIT"
+
+DATE-OBS:
+    min: 2022-04-01
+    max: 2022-04-13T12:24:10.003
 
 categories:
   DARK:
@@ -58,7 +60,7 @@ The mandatory keywords are:
 - `categories` : lists all calibration categories (e.g. FLAT, DARK,...)
 - `sources` : the sources corresponding to the parent category (mandatory for each category).
 
-In this example, the calibration files are identified by their `ESO DPR TYPE` keyword.  If several values are allowed, they can be given in a array (as for the `WAVE` category in this example). If several keywords are given (as for the `FLAT` category) all of them must be valid.
+In this example, the calibration files are identified by their `ESO DPR TYPE` keyword.  If several values are allowed, they can be given in a array (as for the `WAVE` category in this example). If several keywords are given (as for the `FLAT` category) all of them must be valid. A date range can also be given, see more info below.
 
 Optional keywords are:
 
@@ -70,3 +72,12 @@ Optional keywords are:
 - `hdu` : name of the FITS HDU that contains the data (default `primary`).
 
 All the keywords given in the root of the file are set for all the categories (as `suffixes` in the example) but this can be overiden by keywords in each category (as `exptime` in the example).
+
+It is possible to restrict the calibration files by a range of dates:
+```yaml
+DATE-OBS:
+    min: 2022-04-01
+    max: 2022-04-13T12:24:10.003
+```
+Only files respecting `min <= file["DATE-OBS"] < max` are kept.
+

@@ -1,6 +1,3 @@
-title: ZIMPOL detector calibration
-
-
 suffixes: [.fits, .fits.gz,.fits.Z]
 include subdirectory: true
 exclude files: M.

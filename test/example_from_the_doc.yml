@@ -1,0 +1,44 @@
+# We start to define our global settings
+
+# directory path where files will be looked for
+dir:  alice/calibration-files/
+
+# if true, sub directories will be searched too
+include subdirectory: true
+
+# only files whose filename ends with at least one of these suffixes will be kept
+suffixes: [.fits, .fits.gz,.fits.Z]
+
+# AstronomicalDetectors needs to know the integration time.
+# we specify which keyword contains this information.
+exptime: "ESO DET SEQ1 DIT"
+
+# We start to define our global filters
+
+# This is a filter that will be applied to every file.
+# INSTRUME is a keyword name. SPHERE is the target value.
+# Only files whose header have INSTRUME keyword with value SPHERE will be kept.
+INSTRUME: SPHERE
+
+# Here we want to restrict the files by a range of DateTime for the keyword DATE-OBS.
+DATE-OBS:
+    min: 2022-04-01                # inferior bound (inclusive)
+    max: 2022-04-13T12:24:10.003   # superior bound (exclusive)
+
+# We start to define our categories
+
+categories:
+  FLAT:   # a first category, of name "FLAT"
+    sources: background + flat   # two sources : "background" and "flat"
+    ESO INS COMB IFLT: BB_H      # a filter for this category
+    ESO DPR TYPE: FLAT,LAMP      # another
+
+  BACKGROUND:  # another category, of name "BACKGROUND"
+    sources: background
+    ESO DPR TYPE: ["DARK", "DARK,BACKGROUND"]   # at least one of these values must hold
+
+  WAVE:
+    sources: background + wave
+    dir: alice/wave-calibration-folder  # changing the `dir` setting for this category
+    exptime: "SPECIAL DIT KEYWORD"      # changing the `exptime` setting for this category
+    ESO DPR TYPE: ["LAMP,WAVE","WAVE,LAMP"]
