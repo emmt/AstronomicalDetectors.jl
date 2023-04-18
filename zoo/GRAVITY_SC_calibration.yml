@@ -1,6 +1,3 @@
-title: GRAVITY science detector calibration
-
-
 suffixes: [.fits, .fits.gz,.fits.Z]
 include subdirectory: false
 exclude files: M.

@@ -1,5 +1,3 @@
-title: GRAVITY acquisition detector calibration
-
 dir: /Users/ferreol/Data/Gravity+/2020-03-09_MEDIUM_COMBINED/
 suffixes: [.fits, .fits.gz,.fits.Z]
 include subdirectory: true
