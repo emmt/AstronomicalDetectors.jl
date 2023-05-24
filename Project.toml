@@ -4,6 +4,7 @@ authors = ["Éric Thiébaut <eric.thiebaut@univ-lyon1.fr> and contributors"]
 version = "0.1.0"
 
 [deps]
+BaseFITS = "b056ee54-6bb4-44e7-9abb-abfb59909e18"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 EasyFITS = "a977f4a2-36a7-4172-89e7-19c2726f82e5"
 ScientificDetectors = "7137afbe-ade3-4903-9296-05966c540d95"

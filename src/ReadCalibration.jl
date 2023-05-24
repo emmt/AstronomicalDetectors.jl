@@ -1,393 +1,370 @@
-module YAMLCalibrationFiles
+module ReadCalibration
 
-using EasyFITS: FitsFile, FitsHeader, FitsImageHDU
-using ScientificDetectors
-using YAML
-using ScientificDetectors:CalibrationFrameSampler
+export read_calibration_files_from_yaml
+
 using Dates
-import ScientificDetectors.Calibration: prunecalibration
+using ..Configs
+using ..YAMLParsing
+using EasyFITS: FitsFile, FitsImageHDU
+using ScientificDetectors
+using ScientificDetectors.Calibration: prunecalibration
+import ScientificDetectors: CalibrationCategory, CalibrationData
 
 """
-    fill_filedict!(filedict,catdict,dir)
+    parse_datetime_like_yaml(str; faildate=DateTime(0,1,1)) -> DateTime
 
-fill dictionary `filedict` with fitsheader of all files in `dir` according to the keywords in `catdict`
-The dictionary  `filedict` key is the filepath.
+Parse a String to a DateTime. Chop off the 4th digit of Milliseconds if present.
+
+A lot of Sphere FITS files use 4 digits for milliseconds, whereas
+Julia only supports 3 digits. In this case, we chop off the 4th digit. Rounding would be better,
+but we want to do it in the same way that the YAML library do it. If the same String value gets a
+different parsed DateTime value in the YAML and in this module, it can make some Configs filters
+go wrong.
+"""
+function parse_datetime_like_yaml(str::AbstractString ; faildate::DateTime=DateTime(0,1,1)
+) ::DateTime
+    date = tryparse(DateTime, str)
+    if date === nothing ; date = tryparse(DateTime, chop(str ; tail=1)) end
+    if date === nothing
+        @warn string("Could not parse date \"", str, "\", using default date: ", faildate)
+        date = faildate
+    end
+    return date
+end
 
 """
-function fill_filedict!(filedict::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any},
-                        dir::String)
-    for filename in readdir(dir; join=true, sort=false)
-        if !contains(filename,catdict["exclude files"])
-            if isfile(filename)
-                if endswith(filename,catdict["suffixes"])
-                    get!(filedict, filename) do
-                        read(FitsHeader, filename)
+    find_filepaths_by_category(config; basedir=pwd()) -> Dict{String,Vector{String}}
+
+Follow `config` to list candidate files for each category.
+
+A file is candidate if it is in the directory indicated by the `dir` setting (subfolders are
+supported if the setting `include_subdirectories` is true), if its suffix is among the ones listed
+by setting `suffixes`, and if it do not contains any of the `exclude_files` setting substring list.
+A file is also candidate if it is listed explicitely in the `files` setting. The keyword filters 
+defined in `config` are *not* checked by this function, but by the functions [`challenge_file`](@ref)
+and [`find_and_filter_files_by_category`](@ref). Please note that the paths of config' settings can
+be relative. They will thus be resolved from the current working dir, at the time when this
+function is called. To modify the directory from which relative paths will be resolved, use 
+parameter `basedir`.
+"""
+function find_filepaths_by_category(config::Config ; basedir::AbstractString=pwd()
+) ::Dict{String,Vector{String}}
+
+    filepaths_by_cat = Dict{String,Vector{String}}()
+    
+    oldpwd = pwd()
+    cd(basedir)
+    try
+        # add categories files (decided by settings `files`, `dir`, `exclude files`, `suffixes`)
+        for (name,category) in config.categories
+
+            filepaths_by_cat[name] = String[]
+
+            if isempty(category.files) # if there is no exclusive list of files
+
+                for (currentdir, dirs, files) in walkdir(category.dir ;
+                        topdown = true,
+                        follow_symlinks = category.follow_symbolic_links,
+                        onerror = err -> ())
+                        
+                    for filename in files
+                        any(occursin(filename), category.exclude_files) && continue
+                        any(suffix -> endswith(filename, suffix), category.suffixes) || continue
+                        filepath = abspath(joinpath(currentdir, filename)) # make path absolute
+                        push!(filepaths_by_cat[name], filepath)
                     end
+                    
+                    category.include_subdirectories || break
                 end
-            elseif isdir(filename) && catdict["include subdirectory"]
-                fill_filedict!(filedict, catdict, filename)
+
+            else
+                filepaths_by_cat[name] 
+                for filepath in category.files
+                    absfilepath = abspath(filepath) # make path absolute
+                    if isfile(absfilepath) ; push!(filepaths_by_cat[name], absfilepath)
+                    else @warn "File from setting `files` not found: $(absfilepath)." end
+                end
             end
+            
+            isempty(filepaths_by_cat[name]) && @warn string(
+                "No files found for category ", name, ", even before applying filters.")
         end
+    finally
+        cd(oldpwd)
     end
+    
+    all(isempty, values(filepaths_by_cat)) && error(string(
+        "Zero files found even before applying filters. Maybe you are in the wrong base ",
+        "directory. Try option `basedir` ? Or check the settings, in particular \"dir\", ",
+        "\"suffixes\", \"exclude files\", \"include subdirectories\"."))
+    
+    return filepaths_by_cat
 end
 
-function fill_filedict!(filedict::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any},
-                        dirs::Vector{String})
-    for dir in dirs
-        fill_filedict!(filedict,catdict,dir)
-    end
-end
-
-
 """
-    contains(chain::Union{AbstractString,Vector{AbstractString}}, pattern::Vector{AbstractString})
+    gather_filters_keywords(config) -> Dict{String,Type}
+    
+Follow `config` to list the keyword names and the types of the filters.
 
-Overloading of Base.contains for vectors of string. Return `true` if a `chain`
-contains one of the patterns given in `pattern`
+The setting `exptime` is considered as a filter too. The goal is to have the list of the keywords
+that we need to read in the FITS files. Then we can collect all needed information in one pass
+over the collection of FITS files, this is done in the function
+[`find_and_filter_files_by_category`](@ref).
+
+Return a dictionnary where keys are the keyword names, and values are types of the target values
+of the filters. Every type is <: [`FilterValue`](@ref).
 """
-function Base.contains(chain::Union{String,Vector{String}}, pattern::Vector{String})
-    for str in pattern
-        if contains(chain,str)
-            return true
+function gather_filters_keywords(config::Config) ::Dict{String,Type}
+
+    gathered = Dict{String,Type}()
+    
+    function gather(kwdname, kwdtype)
+        if haskey(gathered, kwdname) && gathered[kwdname] != kwdtype
+            @warn string("Redefinition of filter keyword's type: ",
+                         "from ", gathered[kwdname], " to ", kwdtype, ".")
         end
+        gathered[kwdname] = kwdtype
     end
-    return false
-end
-
-"""
-    contains(chain::Vector{String}, pattern::String)
-
-Overloading of Base.contains for vectors of string. Return `true` if one of the `chains`
-contains `pattern`
-"""
-function Base.contains(chains::Vector{String}, pattern::AbstractString)
-    for chain in chains
-        if contains(chain,pattern)
-            return true
-        end
+    
+    !isempty(config.exptime) && gather(config.exptime, Float64)
+    foreach(config.filters) do (kwdname,filter) ; gather(kwdname, eltype(filter)) end
+    
+    for (name, category) in config.categories
+        !isempty(config.exptime) && gather(category.exptime, Float64)
+        foreach(category.filters) do (kwdname,filter) ; gather(kwdname, eltype(filter)) end
     end
-    return false
-end
-
-
-
-"""
-    endswith(chain::Union{String,Vector{String}}, pattern::Vector{String})
-
-Overloading of Base.endswith for vectors of string. Return `true` if `chain`
-ends with one of the patterns given in `pattern`
-"""
-function Base.endswith(chain::Union{String,Vector{String}}, pattern::Vector{String})
-    for str in pattern
-        if endswith(chain,str)
-            return true
-        end
-    end
-    return false
+    
+    return gathered
 end
 
 """
-    endswith(chain::Vector{String}, pattern::String)
+    gather_files_infos(filepaths, filters_keywords) -> Dict{String,Dict{String,Any}}
 
-Overloading of Base.endswith for vectors of string. Return `true` if `chain`
-ends with `pattern`
+Retrieve the value for each given filter keyword, for each given filepath.
+
+Missing keywords will give `missing` values. A wrong type asked for a keyword will throw an error,
+i.e a Logical FITS keyword cannot be asked as an Int. Note that the FITS keyword have no notion
+of Float32 or Float64 so asking a Float64 will work as long as the FITS keyword is Real. Be
+careful because FITS floats possible values are a different than Julia `Float64` possible values.
+DateTime values are parsed by function [`parse_datetime_like_yaml`](@ref).
 """
-function Base.endswith(chains::Vector{String},pattern::AbstractString)
-    for chain in chains
-        if endswith(chain,pattern)
-            return true
-        end
-    end
-    return false
-end
+function gather_files_infos(filepaths::Set{String}, filters_keywords::Dict{String,Type}
+) ::Dict{String,Dict{String,Any}}
 
-
-"""
-    filterfilename(filelist,name)
-
-Remove all files from `filelist` that do not match the strings in `name`.
-"""
-function filterfilename(filelist::Dict{String, FitsHeader},name::String)
-    return filterfilename(filelist,[name])
-end
-
-function filterfilename(filelist::Dict{String, FitsHeader},name::Vector{String})
-    pattern =Regex("("*join(name,")|(")*")")
-    return filter(p->match(pattern,p.first) !== nothing,filelist)
-end
-
-"""
-    filtercat(filelist, keyword, targetvalue) -> filteredlist
-
-Creates a filtered list of `filelist`. Only files with card `keyword` with value `value` are kept.
-`targettype` serves as a join type between the target value and the header card.
-"""
-function filtercat_singleval(filelist    ::Dict{String,FitsHeader},
-                             keyword     ::String,
-                             targetvalue ::T,
-                             targettype  ::Type{J}
-) ::Dict{String,FitsHeader} where {J, T<:J}
-
-    return filter(filelist) do (filepath, header)
-        card = get(header, keyword, nothing)
-        card == nothing && return false
-        valtype(card) <: J || begin
-            @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
-            return false
-        end
-        return card.value(J) == targetvalue
-    end
-end
-
-"""
-    filtercat(filelist, keyword, targetvalues) -> filteredlist
-
-Creates a filtered list of `filelist`. If at least one of the values is found, the file is kept.
-`targettype` serves as a join type between the target values and the header card.
-"""
-function filtercat_severalvals(filelist     ::Dict{String,FitsHeader},
-                               keyword      ::String,
-                               targetvalues ::Vector{T},
-                               targettype   ::Type{J}
-) ::Dict{String,FitsHeader} where {J, T<:J}
-
-    return filter(filelist) do (filepath, header)
-        card = get(header, keyword, nothing)
-        card == nothing && return false
-        valtype(card) <: J || begin
-            @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
-            return false
-        end
-        return card.value(J) in targetvalues
-    end
-end
-
-"""
-YAML library parsing of DateTimes is imperfect but we mimic it to stay consistent
-"""
-function parseDateTimelikeYAML(datestr::String) ::Union{DateTime,Nothing}
-    # trying to parse value into a DateTime
-    date = tryparse(DateTime, datestr)
-
-    if date == nothing
-        # some FITS use four digits for the milliseconds, contrary to the ISO format.
-        # we just remove the fourth digit, the YAML library do the same,
-        # so it is consistent with the Date values in the YAML file.
-        return tryparse(DateTime, chop(datestr))
-    else
-        return date
-    end
-end
-
-"""
-    filtercat(filelist, keyword, datemin, datemax) -> filteredlist
-
-Creates a filtered list of `filelist`. Only files with datemin <= file[keyword] < datemax are kept.
-"""
-function filtercat_daterange(filelist ::Dict{String,FitsHeader},
-                             keyword ::String,
-                             datemin ::Union{Date,DateTime},
-                             datemax ::Union{Date,DateTime}
-) ::Dict{String,FitsHeader}
-
-    return filter(filelist) do (filepath, header)
-
-        keyword in keys(header) || return false
-        cardval = header[keyword].value(String)
-
-        carddate = parseDateTimelikeYAML(cardval)
-
-        carddate == nothing && begin
-            @warn "keyword $keyword=$cardval cannot be parsed as DateTime in file $filepath"
-            return false
-        end
-        return (datemin <= carddate < datemax)
-    end
-end
-
-# supported types for single target values and eltype in vector target values
-# also used as join types, see `targettype` in filtercat_singleval()
-const SUPPORTED_VALUE_TYPES = [String, Bool, Integer, AbstractFloat]
-
-"""
-Filters the `filelist` to keep only files where keyword is of the target value.
-Target value can be of several kinds, see the doc.
-"""
-function filtercat(filelist::Dict{String,FitsHeader},
-                   keyword::String,
-                   targetvalue::Any
-) ::Dict{String,FitsHeader}
-
-    # case: single value of Complex type (unsupported)
-    targetvalue isa Complex && error("Complex values not yet implemented")
-
-    # case: single value of a supported type
-    i = findfirst(T -> targetvalue isa T, SUPPORTED_VALUE_TYPES)
-    i != nothing && return filtercat_singleval(filelist, keyword,
-                                               targetvalue, SUPPORTED_VALUE_TYPES[i])
-
-    # case: Vector of values
-    targetvalue isa Vector && begin
-
-        #  case Complex eltype (unsupported)
-        eltype(targetvalue) isa Complex && error("Complex values not yet implemented")
-
-        # case: supported eltype
-        i = findfirst(T -> eltype(targetvalue) <: T, SUPPORTED_VALUE_TYPES)
-        i != nothing && return filtercat_severalvals(filelist, keyword,
-                                                     targetvalue, SUPPORTED_VALUE_TYPES[i])
-
-        # case: fail
-        error("eltype $(eltype(targetvalue)) of the Vector target value is not supported")
-    end
-
-    # case: Dictionnary
-    targetvalue isa Dict && begin
-
-        # case: date range
-        ( length(targetvalue) == 2
-          && haskey(targetvalue, "min")
-          && haskey(targetvalue, "max")
-          && targetvalue["min"] isa Union{Date,DateTime}
-          && targetvalue["max"] isa Union{Date,DateTime}
-        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"])
-
-        # case: fail
-        error("wrong Dictionnary targetvalue $targetvalue ; only date ranges are supported")
-    end
-
-    error(string("unsupported target value type ", typeof(targetvalue)))
-end
-
-
-"""
-    newlist = filtercat(filelist::Dict{String, FitsHeader},catdict::Dict{String, Any})
-
-Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `catdict`
-"""
-function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any};
-                        verb::Bool=false)
-    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
-    keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
-    if length(keydict)>0
-        for (keyword,value) in keydict
-            if verb
-                initialsize = length(filelist)
-            end
-            filelist =  filtercat(filelist,keyword,value)
-            if verb
-                filteredsize = length(filelist)
-                @info "from $initialsize files, kept $filteredsize, by filter $keyword=$value"
-            end
-        end
-    end
-    return filelist
-end
-
-function default_calibdict(dir::AbstractString,roi)
-    calibdict = Dict{String, Any}()
-    calibdict["dir"] = dir
-    calibdict["hdu"] = 1
-    calibdict["suffixes"] = [".fits", ".fits.gz", ".fits.Z"]
-    calibdict["include subdirectory"] = true
-    calibdict["exclude files"] = Vector{String}()
-    calibdict["roi"] = roi
-    return calibdict
-end
-
-function default_category_dict(calibdict::Dict{String, Any})
-    filteredkeywords = "(categories)";
-    catdict  = Dict{String, Any}()
-    merge!(catdict,filter(p->match(Regex(filteredkeywords), p.first) === nothing,calibdict));
-    return catdict
-end
-
-"""
-    ReadCalibrationFiles(yaml_file::AbstractString; roi::NTuple{2} = (:,:),  dir=pwd())
-
-Process calibration files according to the YAML configuration file `yaml_file`.
-
-- `roi` keyword can be used to consider only a region of interest of the detector (e.g. `roi=(1:100,1:2:100)`) default `roi=(:,:)`
-
-- `dir` is the directory containing the files. By default `dir=pwd()`. This keyword is overriden by the `dir` in the YAML config file
-
-- `prune`  by default `prune=true` remove empty categories and sources
-
-- `verb`  by default `verb=false` print information about filtering of files in categories
-
-Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
-"""
-function ReadCalibrationFiles(yaml_file::AbstractString;
-                              roi = (:,:),
-                              dir = pwd(),
-                              prune::Bool=true,
-                              verb::Bool=false)
-
-    calibdict = default_calibdict(dir,repr(roi))
-    #merge!(calibdict,vararg)
-    merge!(calibdict,YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
-
-    filedict = Dict{String, FitsHeader}()
-
-    catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in calibdict["categories"] ]
-    local caldat::CalibrationData{Float64}
-    local dataroi::DetectorAxes
-    local inds::Tuple{OrdinalRange, OrdinalRange}
-    isfirst = true
-    width, height = -1, -1
-
-    for (cat,value) in calibdict["categories"]
-        catdict =default_category_dict(calibdict)
-        merge!(catdict, value)
-        empty!(filedict)
-        fill_filedict!(filedict,calibdict,catdict["dir"])
-        haskey(catdict,"files") && fill_filedict!(filedict,calibdict,catdict["files"])
-        verb && @info "category: $cat"
-        filescat = filterkeyword(filedict, catdict; verb=verb)
-        verb && (@info keys(filescat) ; @info "------------------")
-        if !isempty(filescat)
-            for (filename,fitshead) in filescat
-
-                FitsFile(filename) do file
-
-                    hdu = FitsImageHDU(file, Int(catdict["hdu"]))
-
-                    if isfirst
-                        width, height = hdu.data_size
-                        inds = (Base.OneTo(width)[eval(Meta.parse(catdict["roi"]))[1]],
-                        Base.OneTo(height)[eval(Meta.parse(catdict["roi"]))[2]])
-                        dataroi = DetectorAxes(inds)
-                        caldat = CalibrationData{Float64}(dataroi,catarr)
-                        isfirst = false
+    files_infos = Dict{String,Dict{String,Any}}()
+    
+    @info string("Reading ", length(filepaths),
+                 " files for header infos (it can take a long time).")
+    for filepath in filepaths
+        FitsFile(filepath) do file
+            primaryhdu = file[1]
+            dic = Dict{String,Any}()
+            for (kwdname, kwdtype) in filters_keywords
+                kwdval =
+                    if kwdtype == DateTime
+                        str = get(primaryhdu, kwdname, (;value=T->missing)).value(String)
+                        ismissing(str) ? missing : parse_datetime_like_yaml(str)
                     else
-                        width  == hdu.data_size[1] || error("incompatible sizes")
-                        height == hdu.data_size[2] || error("incompatible sizes")
+                        get(primaryhdu, kwdname, (;value=T->missing)).value(kwdtype)
                     end
-                    if hdu.data_ndims == 2
-                        data = read(hdu, inds...)
-                        sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]].float,data;roi=dataroi)
-                    else
-                        data = read(hdu, (inds...,Base.OneTo(hdu.data_size[3]))...)
+                dic[kwdname] = kwdval
+            end
+            files_infos[filepath] = dic
+        end
+    end
+    
+    return files_infos
+end
 
-                        if hdu.data_size[3] > 1
-                            sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]].float;roi=dataroi)
-                        else
-                            sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]].float,view(data, :,:, 1);roi=dataroi)
-                        end
-                    end
-                    push!(caldat, sampler)
+"""
+    challenge_file(filters, file_infos) -> Tuple{Bool,String}
+    
+Tests if given keyword values respect the given filters.
+
+Returns `true` and an empty `String` if success. If one keyword is wrong, returns `false`
+along with the keyword name. Parameter `file_infos` must contain informations for all given
+`filters`.
+"""
+function challenge_file(filters::Dict{String,ConfigFilter}, file_infos::Dict{String,Any}
+) ::Tuple{Bool,String}
+
+    for (keywordname,filter) in filters
+        haskey(file_infos, keywordname) || error("File infos has no key $(keywordname).")
+        ismissing(file_infos[keywordname]) && return(false, keywordname)
+        challenge_filter(filter, file_infos[keywordname]) || return(false, keywordname)
+    end
+    
+    return (true, "") # success
+end
+
+"""
+    find_and_filter_files_by_category(config; basedir=pwd()) -> Dict{String,Vector{String}}
+
+Find valid files for each category in `config`.
+
+A valid file is a `candidate` one (from function [`find_filepaths_by_category`](@ref) that respects
+every filter (see function [`challenge_file`](@ref). Debug prints information about acceptance
+of rejection of every candidate file.
+"""
+function find_and_filter_files_by_category(config::Config ; basedir::AbstractString=pwd()
+)::Dict{String,Vector{String}}
+
+    filepaths_by_cat = find_filepaths_by_category(config ; basedir=basedir)
+    filters_keywords = gather_filters_keywords(config)
+    filepaths_set    = reduce(union, values(filepaths_by_cat) ; init=Set{String}())
+    files_infos      = gather_files_infos(filepaths_set, filters_keywords)
+    
+    for (name,category) in config.categories
+
+        @debug "==================================="
+        @debug string("Category ", name)
+        @debug "- - - - - - - - - - - - - - - - - -"
+        
+        isempty(filepaths_by_cat[name]) && begin
+            @debug "Zero files to try."
+            continue
+        end
+        
+        filter!(filepaths_by_cat[name]) do filepath
+
+            if ismissing(files_infos[filepath][category.exptime])
+                @warn string("[x] Missing exptime keyword ", category.exptime,
+                                     ", rejected file ", filepath)
+                false
+            else
+                # category filters overwrite global filters
+                filters = merge(config.filters, category.filters)
+                
+                (isvalid, kwdculprit) = challenge_file(filters, files_infos[filepath])
+                
+                if isvalid ; @debug string("[v] File accepted ", filepath)
+                else         @debug string("[x] Filter ", kwdculprit, " rejected file ", filepath)
+                end
+
+                isvalid
+            end
+        end
+        @debug string("Category ", name, " kept ", length(filepaths_by_cat[name]), " files.")
+        
+        isempty(filepaths_by_cat[name]) && @warn string(
+            "No files were kept by filters for category ", name, ".")
+    end
+    
+    all(isempty, values(filepaths_by_cat)) && error(string(
+        "Zero files kept for the categories. Investigate with debug mode ?"))
+    
+    return filepaths_by_cat
+end
+
+"""
+Construct a `CalibrationCategory` from a `ConfigCategory`, by using its `name` and the
+setting `sources`.
+"""
+function CalibrationCategory(name::String, category::ConfigCategory)
+    CalibrationCategory(name, category.sources)
+end
+
+"""
+Construct a `CalibrationData` from a `Config̀`.
+
+Each `ConfigCategory` in `config` will give a
+`CalibrationCategory` in `CalibrationData`. The parameter `config` contains the infornation to
+find the files to feed to each category. Please note that `config` may contain relative paths, they
+will be resolved from the working current dir at the time when this constructor is called. To
+modify the directory from which relative paths will be resolved, use parameter `basedir`.
+"""
+function CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
+) where {T<:AbstractFloat}
+
+    calib_cats = [CalibrationCategory(name,cat) for (name,cat) in config.categories]
+
+    filepaths_by_cats = find_and_filter_files_by_category(config ; basedir=basedir)
+
+    nbfiles = sum(length.(values(filepaths_by_cats)))
+    nbfiles > 0 || error("Zero files for calibration.")
+
+    roi = config.roi
+
+    # if width or height is `:` we take the first file and use its size
+    if roi[1] isa Colon || roi[2] isa Colon
+        for (catname, files) in filepaths_by_cats
+            if !isempty(files)
+                (width, height) = FitsImageHDU( FitsFile(first(files)), 1 ).data_size[1:2]
+                if roi[1] isa Colon ; roi = (1:1:width, roi[2]    ) end
+                if roi[2] isa Colon ; roi = (roi[1]   , 1:1:height) end
+                break
+            end
+        end
+    end
+
+    detectoraxes = DetectorAxes(roi)
+
+    calibdata = CalibrationData{T}(detectoraxes, calib_cats)
+    
+    @info string("Reading ", nbfiles, " files for calibration (it can take a long time).")
+    for (catname, category) in config.categories
+        for filepath in filepaths_by_cats[catname]
+            FitsFile(filepath) do file
+            
+                realdit = file[1][category.exptime].float # from primary hdu
+                hdu     = file[category.hdu]
+                
+                if hdu.data_ndims == 2 || (hdu.data_ndims == 3 && hdu.data_size[3] == 1)
+                    matrix = read(Matrix{T}, hdu, (roi..., 1))
+                    frame = CalibrationDataFrame(catname, realdit, matrix ; roi=detectoraxes)
+                    push!(calibdata, frame)
+                    
+                elseif hdu.data_ndims == 3 && hdu.data_size[3] >= 2
+                    cube = read(Array{T,3}, hdu, (roi..., :))
+                    sampler = CalibrationFrameSampler(cube, catname, realdit ; roi=detectoraxes)
+                    push!(calibdata, sampler)
+                    
+                else
+                    error(string("File ", filepath, " has incorrect dimensions , ",
+                                 hdu.data_size, " , so is excluded from the calibration."))
                 end
             end
         end
     end
-    if prune
-        caldat = prunecalibration(caldat)
-    end
-
-    return caldat
+    
+    return calibdata
 end
 
+"""
+    read_calibration_files_from_yaml(yamlpath::AbstractString, ::Type{T}=Float64; <keyword arguments>) -> CalibrationData{T}
+
+Construct a `CalibrationData` from a YAML config file path.
+
+# Arguments
+- `yamlpath::AbstractString`: the path to the YAML config file.
+- `::Type{T}=Float64`: the float type to use for calibration.
+  Use Float32 if you need speed or space.
+- `overwrite_roi::Union{Nothing, NTuple{2,Union{Colon,StepRange{Int,Int}}}}=nothing`: ovewrites the
+  roi (Region Of Interest) set in the YAML file. When `nothing`, the roi from the YAML file is
+  used. You can give colons (i.e `(:,:)`) to set full view or `StepRanges` to cut (i.e
+  `(11:2038,11:1014)`).
+- `basedir::AbstractString=pwd()`: Some paths in the YAML may be relative. Thus they will be
+  resolved in the current working dir, at the time when calling this function. Set this parameter
+  to modify the directory from which relative paths will be resolved.
+- `prune::Bool=true`: When `true`, will call the function `prunecalibration` from 
+  `ScientificDetectors`, to clean the `CalibrationData` from empty categories.
+"""
+function read_calibration_files_from_yaml(
+    yamlpath ::AbstractString,
+    ::Type{T} = Float64
+    ;
+    overwrite_roi ::Union{Nothing, NTuple{2,Union{Colon,StepRange{Int,Int}}}} = nothing,
+    basedir ::AbstractString = pwd(),
+    prune   ::Bool = true
+) ::CalibrationData{T} where {T<:AbstractFloat}
+
+    config = parse_yaml_file(yamlpath)
+    if overwrite_roi !== nothing ; config.roi = overwrite_roi end
+    
+    data = CalibrationData{T}(config ; basedir=basedir)
+    if prune ; data = prunecalibration(data) end
+    
+    return data
 end
+
+end # module

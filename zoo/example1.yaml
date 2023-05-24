@@ -1,10 +1,12 @@
 # We start to define our global settings
 
+title: "A YAML config example"
+
 # directory path where files will be looked for
 dir:  alice/calibration-files/
 
 # if true, sub directories will be searched too
-include subdirectory: true
+include subdirectories: true
 
 # only files whose filename ends with at least one of these suffixes will be kept
 suffixes: [.fits, .fits.gz,.fits.Z]
@@ -29,7 +31,7 @@ DATE-OBS:
 
 categories:
   FLAT:   # a first category, of name "FLAT"
-    sources: background + flat   # two sources : "background" and "flat"
+    sources: background + flat   # two sources, "background" and "flat"
     ESO INS COMB IFLT: BB_H      # a filter for this category
     ESO DPR TYPE: FLAT,LAMP      # another
 

@@ -18,7 +18,7 @@ export
     CalibrationData,
     CalibrationInformation,
     scan_calibrations,
-    ReadCalibrationFiles
+    read_calibration_files_from_yaml
 
 using EasyFITS: FitsFile, FitsHeader, FitsImageHDU
 
@@ -27,9 +27,11 @@ using SimpleExpressions
 using ScientificDetectors
 using ScientificDetectors: CalibrationCategory
 
+include("Configs.jl")
+include("YAMLParsing.jl")
 
 include("ReadCalibration.jl")
-import .YAMLCalibrationFiles: ReadCalibrationFiles
+using .ReadCalibration: read_calibration_files_from_yaml
 
 struct CalibrationInformation
     path::String             # FITS file
