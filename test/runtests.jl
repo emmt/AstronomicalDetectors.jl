@@ -476,7 +476,10 @@ categories:
         msg = "No files were kept by filters for category BACK."
         @test_warn msg (calib = read_calibration_files_from_yaml(yamlpath ;
                                overwrite_roi=(1:1:2, 1:1:1), basedir=subpath, prune=true))
-        @test Set(keys(calib.src_index)) == Set(["back__and__flat"])
+        #TODO: re-enable when `prune` merged in ScientificDetectors:
+        # @test Set(keys(calib.src_index)) == Set(["back__and__flat"])
+        #TODO: disable when `prune` merged in ScientificDetectors:
+        @test Set(keys(calib.src_index)) == Set(["back", "flat"])
         @test Set(keys(calib.cat_index)) == Set(["FLAT"])
         @test calib.stat[calib.stat_index[("FLAT",1e0)]].n == 1
         @test calib.stat[calib.stat_index[("FLAT",1e0)]].s[1] == [101 ; 101 ;;]
