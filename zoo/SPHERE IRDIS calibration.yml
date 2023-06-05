@@ -12,7 +12,7 @@ categories:
   DARK_DB_K12:
     ESO DPR TYPE: DARK
     ESO INS COMB IFLT: DB_K12
-    sources: dark 
+    sources: dark
 
   BACKGROUND:
     ESO DPR TYPE: DARK,BACKGROUND

@@ -228,29 +228,29 @@ end
         DateTime(2023,5,30,15,27,19,449)
     @test parse_datetime_like_yaml("MDR") == DateTime(0,1,1)
 end
-    
+
 #TODO: test follow_symbolic_links, which seems to concern only symbolic link to folders
 @testset "ReadCalibration.find_filepaths_by_category" begin
     mktempdir() do tmpdir
-    
+
         rootdir    = joinpath(tmpdir, "rootdir")
         altrootdir = joinpath(tmpdir, "altrootdir")
         subrootdir = joinpath(rootdir, "subrootdir")
-        
+
         flatpath1 = joinpath(rootdir,    "flat1.fits")
         flatpath2 = joinpath(rootdir,    "flat2.fitsyfits") # bad extension
         flatpath3 = joinpath(rootdir,    "useless-flat3.fits") # excluded by `exclude_files`
         flatpath4 = joinpath(subrootdir, "flat4.fits")      # in sub root dir
-        
+
         backname1 = "back1.fits"
         # will be adressed by relative path.
         backpath1 = joinpath(rootdir, backname1)
         backpath2 = joinpath(altrootdir, "back2.fits") # in altrootdir, will be adressed by `files`
-        
+
         darkpath1 = joinpath(altrootdir, "dark1.fits") # will be found by setting `dir`
         # bad extension but ok since `suffixes` is different for category DARK
         darkpath2 = joinpath(altrootdir, "dark2.fitsyfits")
-        
+
         # [rootdir]
         # |-- flat1.fits
         # |-- flat2.fitsyfits
@@ -262,7 +262,7 @@ end
         # |-- back2.fits
         # |-- dark1.fits
         # |-- dark2.fitsyfits
-        
+
         mkdir(rootdir)
         mkdir(subrootdir)
         mkdir(altrootdir)
@@ -274,31 +274,31 @@ end
         writefits!(backpath2,  FitsHeader("EXPTIME" => 1e0, "CALIBTYPE" => "BACK"), [12 ;;])
         writefits!(darkpath1,  FitsHeader("EXPTIME" => 1e0, "CALIBTYPE" => "DARK"), [1  ;;])
         writefits!(darkpath2,  FitsHeader("EXPTIME" => 1e0, "CALIBTYPE" => "DARK"), [2  ;;])
-    
+
         config = Config()
         config.exptime = "EXPTIME"
         config.exclude_files = ["useless"]
-    
+
         config.categories["FLAT"] = ConfigCategory(config, :(flat + back + dark))
         config.categories["FLAT"].filters["CALIBTYPE"] = ConfigFilterSingle("FLAT")
-    
+
         config.categories["BACK"] = ConfigCategory(config, :(back + dark))
         config.categories["BACK"].filters["CALIBTYPE"] = ConfigFilterSingle("BACK")
         config.categories["BACK"].files = [backname1, backpath2] # strict file list
-                                           # first path is relative and will become absolute 
+                                           # first path is relative and will become absolute
         config.categories["BACK"].suffixes = [] # no suffixes accepted but it will has no effect
                                                 # since we use the setting `files`
-    
+
         config.categories["DARK"] = ConfigCategory(config, :dark)
         config.categories["DARK"].filters["CALIBTYPE"] = ConfigFilterSingle("DARK")
         config.categories["DARK"].dir = altrootdir # search for fits in `altrootdir` folder
         config.categories["DARK"].suffixes = [".fitsyfits" ; config.suffixes]
                                              # another suffix accepted
-    
+
         local filesbycats
-        
+
         @test_nowarn filesbycats = find_filepaths_by_category(config ; basedir=rootdir)
-        
+
         # flatpath1 present because in root dir
         # flatpath2 absent because bad extension
         # flatpath3 absent because contain substring "useless"
@@ -306,12 +306,12 @@ end
         # backpath1 present because in root dir and filters are not applied yet in this step
         @test Set(filesbycats["FLAT"]) ==
             Set([flatpath1, flatpath4, backpath1])
-        
+
         # backpath1 present because in the setting `files`
         # backpath2 present because backname1 has been made an absolute path
         # all other files absent because not in setting `files`
         @test Set(filesbycats["BACK"]) == Set([backpath1, backpath2])
-        
+
         # backpath2 and darkpath1 present because in altrootdir
         # darkpath2 present because suffix "fitsyfits" allowed in category DARK
         @test Set(filesbycats["DARK"]) == Set([backpath2, darkpath1, darkpath2])
@@ -336,7 +336,7 @@ end
     filters_keywords = Dict{String,Type}(
         "EXPTIME" => Float64, "DATE" => DateTime, "VERY LONG KKKEEEYYYWWWOOORRRDDDD" => Bool)
     mktempdir() do tmpdir
-        
+
         filepath1 = joinpath(tmpdir, "file1.fits")
         filepath2 = joinpath(tmpdir, "file2.fits")
         filepaths = Set([filepath1, filepath2])
@@ -348,7 +348,7 @@ end
         writefits!(filepath2, hdr2, [1;;])
 
         infos = gather_files_infos(filepaths, filters_keywords)
-        
+
         @test typeof(infos[filepath1]["EXPTIME"]) == filters_keywords["EXPTIME"]
         @test typeof(infos[filepath1]["DATE"])    == filters_keywords["DATE"]
         @test typeof(infos[filepath1]["VERY LONG KKKEEEYYYWWWOOORRRDDDD"]) ==
@@ -357,7 +357,7 @@ end
         @test infos[filepath1]["DATE"]            == hdr1["DATE"].value(DateTime)
         @test infos[filepath1]["VERY LONG KKKEEEYYYWWWOOORRRDDDD"] ==
             hdr1["VERY LONG KKKEEEYYYWWWOOORRRDDDD"].logical
-        
+
         @test typeof(infos[filepath2]["EXPTIME"])  == filters_keywords["EXPTIME"]
         @test typeof(infos[filepath2]["DATE"])     == Missing
         @test typeof(infos[filepath2]["VERY LONG KKKEEEYYYWWWOOORRRDDDD"]) == Missing
@@ -385,29 +385,29 @@ end
     files_infos1["TUTUTU"] = filters["TUTUTU"].acceptedvalues[1]
     files_infos1["TETETE"] = filters["TETETE"].rangemin
     @test first(challenge_file(filters, files_infos1))
-    
+
     # make incorrect infos
-    
+
     files_infos2 = copy(files_infos1)
     files_infos2["TOTO"] = filters["TOTO"].acceptedvalue + 1
     @test challenge_file(filters, files_infos2) == (false, "TOTO")
-    
+
     files_infos2 = copy(files_infos1)
     files_infos2["TATA"] = filters["TATA"].acceptedvalue + 0.000001
     @test challenge_file(filters, files_infos2) == (false, "TATA")
-    
+
     files_infos2 = copy(files_infos1)
     files_infos2["TITI"] = ! filters["TITI"].acceptedvalue
     @test challenge_file(filters, files_infos2) == (false, "TITI")
-    
+
     files_infos2 = copy(files_infos1)
     files_infos2["TUTU"] = filters["TUTU"].acceptedvalue * 'd'
     @test challenge_file(filters, files_infos2) == (false, "TUTU")
-    
+
     files_infos2 = copy(files_infos1)
     files_infos2["TUTUTU"] = reduce(*, filters["TUTUTU"].acceptedvalues)
     @test challenge_file(filters, files_infos2) == (false, "TUTUTU")
-    
+
     files_infos2 = copy(files_infos1)
     files_infos2["TETETE"] = filters["TETETE"].rangemax
     @test challenge_file(filters, files_infos2) == (false, "TETETE")
@@ -415,7 +415,7 @@ end
 
 @testset "ReadCalibration.read_calibration_files_from_yaml" begin
     # this also serves as test for CalibrationData and find_and_filter_files_by_category
-    
+
     yamldata =
 """
 exptime: EXPTIME
@@ -430,29 +430,29 @@ categories:
 """
     mktemp() do yamlpath,yamlfileio
     mktempdir() do tmpdir
-    
+
         write(yamlpath, yamldata)
-    
+
         rootpath = joinpath(tmpdir, "rootdir")
         subpath  = joinpath(rootpath, "subdir")
         mkdir(rootpath)
         mkdir(subpath)
-        
+
         flatpath1 = joinpath(subpath, "flat1.fits")
         flatpath2 = joinpath(subpath, "flat2.fits")
-        
+
         flatpath3 = joinpath(rootpath, "flat3.fits")
-        
+
         backpath1 = joinpath(rootpath, "back1.fits")
         backpath2 = joinpath(rootpath, "back2.fits")
-        
+
         writefits!(flatpath1, FitsHeader("EXPTIME" => 1e0, "CALIBTYPE" => "FLAT"),
                               [101 ; 101 ;; 101 ; 101])
         writefits!(flatpath2, FitsHeader("EXPTIME" => 10e0, "CALIBTYPE" => "FLAT"),
                               [1010 ; 1010 ;; 1010 ; 1010])
         writefits!(flatpath3, FitsHeader("EXPTIME" => 1e0, "CALIBTYPE" => "FLAT"),
                               [103 ; 103 ;; 103 ; 103])
-        
+
         writefits!(backpath1, FitsHeader("EXPTIME" => 1e0, "CALIBTYPE" => "BACK"),
                               [0;;],
                               FitsHeader(),
@@ -471,7 +471,7 @@ categories:
         @test calib.stat[calib.stat_index[("FLAT",10e0)]].s[1] == [1010 ; 1010 ;; 1010 ; 1010]
         @test calib.stat[calib.stat_index[("BACK",1e0)]].n == 2
         @test calib.stat[calib.stat_index[("BACK",1e0)]].s[1] == [2 ; 2 ;; 2 ; 2]
-        
+
         # change roi, and change basedir, and prune
         msg = "No files were kept by filters for category BACK."
         @test_warn msg (calib = read_calibration_files_from_yaml(yamlpath ;

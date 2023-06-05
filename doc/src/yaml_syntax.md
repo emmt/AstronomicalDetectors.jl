@@ -152,7 +152,7 @@ Names of the settings are case sensitive. They are all in lower case, to disting
 filters which are FITS keywords (upper case).
 
 - **exptime**
-  
+
   Contains a FITS keyword name, that keyword must contain the information of the
 exposure time.\
   Type is `String`.\
@@ -278,8 +278,8 @@ sources names.
   Aliases are `follow_symbolic_links`.
   ```yaml
   follow symbolic links: true
-  ``` 
-  
+  ```
+
 - **title**
 
   Gives an informative title to the config.\

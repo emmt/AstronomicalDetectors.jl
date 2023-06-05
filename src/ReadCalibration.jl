@@ -40,18 +40,18 @@ Follow `config` to list candidate files for each category.
 A file is candidate if it is in the directory indicated by the `dir` setting (subfolders are
 supported if the setting `include_subdirectories` is true), if its suffix is among the ones listed
 by setting `suffixes`, and if it do not contains any of the `exclude_files` setting substring list.
-A file is also candidate if it is listed explicitely in the `files` setting. The keyword filters 
+A file is also candidate if it is listed explicitely in the `files` setting. The keyword filters
 defined in `config` are *not* checked by this function, but by the functions [`challenge_file`](@ref)
 and [`find_and_filter_files_by_category`](@ref). Please note that the paths of config' settings can
 be relative. They will thus be resolved from the current working dir, at the time when this
-function is called. To modify the directory from which relative paths will be resolved, use 
+function is called. To modify the directory from which relative paths will be resolved, use
 parameter `basedir`.
 """
 function find_filepaths_by_category(config::Config ; basedir::AbstractString=pwd()
 ) ::Dict{String,Vector{String}}
 
     filepaths_by_cat = Dict{String,Vector{String}}()
-    
+
     oldpwd = pwd()
     cd(basedir)
     try
@@ -66,44 +66,44 @@ function find_filepaths_by_category(config::Config ; basedir::AbstractString=pwd
                         topdown = true,
                         follow_symlinks = category.follow_symbolic_links,
                         onerror = err -> ())
-                        
+
                     for filename in files
                         any(occursin(filename), category.exclude_files) && continue
                         any(suffix -> endswith(filename, suffix), category.suffixes) || continue
                         filepath = abspath(joinpath(currentdir, filename)) # make path absolute
                         push!(filepaths_by_cat[name], filepath)
                     end
-                    
+
                     category.include_subdirectories || break
                 end
 
             else
-                filepaths_by_cat[name] 
+                filepaths_by_cat[name]
                 for filepath in category.files
                     absfilepath = abspath(filepath) # make path absolute
                     if isfile(absfilepath) ; push!(filepaths_by_cat[name], absfilepath)
                     else @warn "File from setting `files` not found: $(absfilepath)." end
                 end
             end
-            
+
             isempty(filepaths_by_cat[name]) && @warn string(
                 "No files found for category ", name, ", even before applying filters.")
         end
     finally
         cd(oldpwd)
     end
-    
+
     all(isempty, values(filepaths_by_cat)) && error(string(
         "Zero files found even before applying filters. Maybe you are in the wrong base ",
         "directory. Try option `basedir` ? Or check the settings, in particular \"dir\", ",
         "\"suffixes\", \"exclude files\", \"include subdirectories\"."))
-    
+
     return filepaths_by_cat
 end
 
 """
     gather_filters_keywords(config) -> Dict{String,Type}
-    
+
 Follow `config` to list the keyword names and the types of the filters.
 
 The setting `exptime` is considered as a filter too. The goal is to have the list of the keywords
@@ -117,7 +117,7 @@ of the filters. Every type is <: [`FilterValue`](@ref).
 function gather_filters_keywords(config::Config) ::Dict{String,Type}
 
     gathered = Dict{String,Type}()
-    
+
     function gather(kwdname, kwdtype)
         if haskey(gathered, kwdname) && gathered[kwdname] != kwdtype
             @warn string("Redefinition of filter keyword's type: ",
@@ -125,15 +125,15 @@ function gather_filters_keywords(config::Config) ::Dict{String,Type}
         end
         gathered[kwdname] = kwdtype
     end
-    
+
     !isempty(config.exptime) && gather(config.exptime, Float64)
     foreach(config.filters) do (kwdname,filter) ; gather(kwdname, eltype(filter)) end
-    
+
     for (name, category) in config.categories
         !isempty(config.exptime) && gather(category.exptime, Float64)
         foreach(category.filters) do (kwdname,filter) ; gather(kwdname, eltype(filter)) end
     end
-    
+
     return gathered
 end
 
@@ -152,7 +152,7 @@ function gather_files_infos(filepaths::Set{String}, filters_keywords::Dict{Strin
 ) ::Dict{String,Dict{String,Any}}
 
     files_infos = Dict{String,Dict{String,Any}}()
-    
+
     @info string("Reading ", length(filepaths),
                  " files for header infos (it can take a long time).")
     for filepath in filepaths
@@ -172,13 +172,13 @@ function gather_files_infos(filepaths::Set{String}, filters_keywords::Dict{Strin
             files_infos[filepath] = dic
         end
     end
-    
+
     return files_infos
 end
 
 """
     challenge_file(filters, file_infos) -> Tuple{Bool,String}
-    
+
 Tests if given keyword values respect the given filters.
 
 Returns `true` and an empty `String` if success. If one keyword is wrong, returns `false`
@@ -193,7 +193,7 @@ function challenge_file(filters::Dict{String,ConfigFilter}, file_infos::Dict{Str
         ismissing(file_infos[keywordname]) && return(false, keywordname)
         challenge_filter(filter, file_infos[keywordname]) || return(false, keywordname)
     end
-    
+
     return (true, "") # success
 end
 
@@ -213,18 +213,18 @@ function find_and_filter_files_by_category(config::Config ; basedir::AbstractStr
     filters_keywords = gather_filters_keywords(config)
     filepaths_set    = reduce(union, values(filepaths_by_cat) ; init=Set{String}())
     files_infos      = gather_files_infos(filepaths_set, filters_keywords)
-    
+
     for (name,category) in config.categories
 
         @debug "==================================="
         @debug string("Category ", name)
         @debug "- - - - - - - - - - - - - - - - - -"
-        
+
         isempty(filepaths_by_cat[name]) && begin
             @debug "Zero files to try."
             continue
         end
-        
+
         filter!(filepaths_by_cat[name]) do filepath
 
             if ismissing(files_infos[filepath][category.exptime])
@@ -234,9 +234,9 @@ function find_and_filter_files_by_category(config::Config ; basedir::AbstractStr
             else
                 # category filters overwrite global filters
                 filters = merge(config.filters, category.filters)
-                
+
                 (isvalid, kwdculprit) = challenge_file(filters, files_infos[filepath])
-                
+
                 if isvalid ; @debug string("[v] File accepted ", filepath)
                 else         @debug string("[x] Filter ", kwdculprit, " rejected file ", filepath)
                 end
@@ -245,14 +245,14 @@ function find_and_filter_files_by_category(config::Config ; basedir::AbstractStr
             end
         end
         @debug string("Category ", name, " kept ", length(filepaths_by_cat[name]), " files.")
-        
+
         isempty(filepaths_by_cat[name]) && @warn string(
             "No files were kept by filters for category ", name, ".")
     end
-    
+
     all(isempty, values(filepaths_by_cat)) && error(string(
         "Zero files kept for the categories. Investigate with debug mode ?"))
-    
+
     return filepaths_by_cat
 end
 
@@ -300,25 +300,25 @@ function CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
     detectoraxes = DetectorAxes(roi)
 
     calibdata = CalibrationData{T}(detectoraxes, calib_cats)
-    
+
     @info string("Reading ", nbfiles, " files for calibration (it can take a long time).")
     for (catname, category) in config.categories
         for filepath in filepaths_by_cats[catname]
             FitsFile(filepath) do file
-            
+
                 realdit = file[1][category.exptime].float # from primary hdu
                 hdu     = file[category.hdu]
-                
+
                 if hdu.data_ndims == 2 || (hdu.data_ndims == 3 && hdu.data_size[3] == 1)
                     matrix = read(Matrix{T}, hdu, (roi..., 1))
                     frame = CalibrationDataFrame(catname, realdit, matrix ; roi=detectoraxes)
                     push!(calibdata, frame)
-                    
+
                 elseif hdu.data_ndims == 3 && hdu.data_size[3] >= 2
                     cube = read(Array{T,3}, hdu, (roi..., :))
                     sampler = CalibrationFrameSampler(cube, catname, realdit ; roi=detectoraxes)
                     push!(calibdata, sampler)
-                    
+
                 else
                     error(string("File ", filepath, " has incorrect dimensions , ",
                                  hdu.data_size, " , so is excluded from the calibration."))
@@ -326,7 +326,7 @@ function CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
             end
         end
     end
-    
+
     return calibdata
 end
 
@@ -346,7 +346,7 @@ Construct a `CalibrationData` from a YAML config file path.
 - `basedir::AbstractString=pwd()`: Some paths in the YAML may be relative. Thus they will be
   resolved in the current working dir, at the time when calling this function. Set this parameter
   to modify the directory from which relative paths will be resolved.
-- `prune::Bool=true`: When `true`, will call the function `prunecalibration` from 
+- `prune::Bool=true`: When `true`, will call the function `prunecalibration` from
   `ScientificDetectors`, to clean the `CalibrationData` from empty categories.
 """
 function read_calibration_files_from_yaml(
@@ -360,10 +360,10 @@ function read_calibration_files_from_yaml(
 
     config = parse_yaml_file(yamlpath)
     if overwrite_roi !== nothing ; config.roi = overwrite_roi end
-    
+
     data = CalibrationData{T}(config ; basedir=basedir)
     if prune ; data = prunecalibration(data) end
-    
+
     return data
 end
 

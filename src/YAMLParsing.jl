@@ -9,7 +9,7 @@ using ..Configs
 
 """
     parse_setting_key(rawkey::String) -> Symbol
-    
+
 Change "YAML key style" with spaces, to "Julia Symbol style" with underscores. Modify some keys to
 assure retro-compatibility with old YAML files.
 
@@ -74,12 +74,12 @@ function parse_setting_value(key::Symbol, rawvalue::Any) ::Any
     if key in (:files, :exclude_files, :suffixes) && !(rawvalue isa Vector)
         rawvalue = [rawvalue]
     end
-    
+
     # convert numbers to the same types used in BaseFITS.
     if rawvalue isa AbstractFloat          ; rawvalue = Float64(rawvalue) end
     if rawvalue isa Union{Signed,Unsigned} ; rawvalue = Int64(rawvalue)   end
                     # we don't want to convert Bool
-    
+
     if     key == :dir     ; rawvalue = normpath.(rawvalue)
     elseif key == :files   ; rawvalue = normpath.(rawvalue)
     elseif key == :roi     ; rawvalue = parse_setting_value_roi(rawvalue)
@@ -116,7 +116,7 @@ Tuple{Colon, StepRange{Int64, Int64}}
 """
 function parse_setting_value_roi(rawvalue::String) ::NTuple{2,Union{Colon,StepRange{Int,Int}}}
     roi = eval(Meta.parse(rawvalue))
-    roi isa Tuple    || error("Invalid type for setting roi: $(typeof(roi)).") 
+    roi isa Tuple    || error("Invalid type for setting roi: $(typeof(roi)).")
     length(roi) == 2 || error("Invalid number of ranges for setting roi: $(length(roi)).")
     return map(roi) do range
         if     range isa Colon         ; range
@@ -142,7 +142,7 @@ end
 """
     parse_filter_single(key::String, rawvalue::Any) -> ConfigFilterSingle
 
-Parse the `rawvalue` to a `ConfigFilterSingle`, provided the type of `rawvalue` belongs to 
+Parse the `rawvalue` to a `ConfigFilterSingle`, provided the type of `rawvalue` belongs to
 [`FilterValue`](@ref).
 """
 function parse_filter_single(key::String, rawvalue::Any) ::ConfigFilterSingle
@@ -153,7 +153,7 @@ end
 """
     parse_filter_multiple(key::String, rawvalue::Any) -> ConfigFilterMultiple
 
-Parse the `rawvalue` to a `ConfigFilterMultiple`, provided the `eltype` of `rawvalue` belongs to 
+Parse the `rawvalue` to a `ConfigFilterMultiple`, provided the `eltype` of `rawvalue` belongs to
 [`FilterValue`](@ref).
 
 `key` is only used in warnings messages.
@@ -209,7 +209,7 @@ function parse_category(parent_config::Config, name::String, rawvalue::Any) ::Co
 
     for (rawkey, rawvalue) in rawvalue
         rawkey == "sources" && continue # already parsed
-    
+
         if isa_filter_key(rawkey)
             category.filters[rawkey] = parse_filter(rawkey, rawvalue)
         else
@@ -232,24 +232,24 @@ function parse_config(yaml::Dict{String,Any}) ::Config
 
     haskey(yaml, "categories") || error("Mandatory \"categories\" section not found.")
     rawcategories = yaml["categories"]
-    
+
     rawcategories isa Dict{String,Any} || error(
         "Section \"categories\" has wrong type: $(typeof(rawcategories)).")
-        
+
     isempty(rawcategories) && error("Section \"categories\" must not be empty.")
-    
+
     config = Config()
-   
+
     # categories
     for (name, rawvalue) in rawcategories
         haskey(config.categories, name) && error("Two definitions for category $name.")
         config.categories[name] = parse_category(config, name, rawvalue)
     end
-    
+
     # settings and filters
     for (rawkey,rawvalue) in yaml
         rawkey == "categories" && continue # already parsed
-            
+
         if isa_filter_key(rawkey)
             config.filters[rawkey] = parse_filter(rawkey, rawvalue)
         else
@@ -257,7 +257,7 @@ function parse_config(yaml::Dict{String,Any}) ::Config
             setproperty!(config, key, parse_global_setting_value(key, rawvalue))
         end
     end
-    
+
     # check that exptime is defined for every category
     if isempty(config.exptime)
         for (name,category) in categories
@@ -266,13 +266,13 @@ function parse_config(yaml::Dict{String,Any}) ::Config
                 "setting \"exptime\" is empty. You must define at least one.")
         end
     end
-    
+
     return config
 end
 
 """
     parse_yaml_file(filepath) -> Config
-    
+
 Parse YAML file as a `Config`.
 """
 function parse_yaml_file(filepath::AbstractString) ::Config

@@ -20,7 +20,7 @@ to permit mutual reference between `Config` and `ConfigCategory`
 abstract type AbsConfigCategory end
 
 """
-Describes a calibration by listing categories, along with the settings and filters to associate 
+Describes a calibration by listing categories, along with the settings and filters to associate
 FITS files.
 
 # Fields
@@ -114,7 +114,7 @@ Config() = Config(
         [".fits", ".fits.gz", ".fits.Z"], # suffixes,
         [],  # exclude_files
         true, # include_subdirectories
-        false) # follow_symbolic_links 
+        false) # follow_symbolic_links
 
 """Default `ConfigCategory` definition."""
 ConfigCategory(parent_config::Config, sources::Union{Symbol,Expr}) = ConfigCategory(
