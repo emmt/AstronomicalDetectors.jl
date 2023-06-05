@@ -1,10 +1,11 @@
+title: "ZIMPOL Config"
 suffixes: [.fits, .fits.gz,.fits.Z]
 include subdirectory: true
 exclude files: M.
 
 exptime: "ESO DET DIT1"
 hdu: "Callas" #Bartolli
-#roi: (26:(512+25),9:2:(1024-8))
+roi: (26:(512+25),9:2:(1024-8))
 
 categories:
   DARK:

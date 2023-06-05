@@ -1,7 +1,9 @@
+#title: Calibration IRDIS basique
 suffixes: [.fits, .fits.gz,.fits.Z]
 include subdirectory: true
 exclude files: M.
 
+roi: "(:, 401:2:500)"
 
 exptime: "ESO DET SEQ1 REALDIT"
 
@@ -10,15 +12,15 @@ categories:
   DARK_DB_K12:
     ESO DPR TYPE: DARK
     ESO INS COMB IFLT: DB_K12
-    sources: dark 
+    sources: dark
 
   BACKGROUND:
     ESO DPR TYPE: DARK,BACKGROUND
     sources: dark + background
 
   FLAT:
-    ESO DPR TYPE:  FLAT
-    sources: flat + dark
+    ESO DPR TYPE:  FLAT,LAMP
+    sources: flat + background + dark
 
   WAVE:
     ESO DPR TYPE:  ["LAMP,WAVE","WAVE,LAMP"]

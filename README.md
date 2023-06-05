@@ -20,15 +20,15 @@ Usage:
 
 ```julia
 using AstronomicalDetectors, ScientificDetectors
-data = ReadCalibrationFiles("ymlfile.yml"; dir="path/to/calib/folder")
+data = read_calibration_files_from_yaml("ymlfile.yml"; basedir="path/to/calib/folder")
 calib = ReducedCalibration(data)
 ```
 
-A YAML file should be as follow :
+A YAML configuration file can be as follow :
 
 ```yaml
 suffixes: [.fits, .fits.gz,.fits.Z]
-include subdirectory: true
+include subdirectories: true
 exclude files: M.
 
 exptime: "ESO DET1 SEQ1 DIT"
@@ -54,30 +54,12 @@ categories:
     sources: dark + wave
 ```
 
-The mandatory keywords are:
+The mandatory parts are:
 
 - `exptime` : the FITS keyword containing the integration time
 - `categories` : lists all calibration categories (e.g. FLAT, DARK,...)
 - `sources` : the sources corresponding to the parent category (mandatory for each category).
 
-In this example, the calibration files are identified by their `ESO DPR TYPE` keyword.  If several values are allowed, they can be given in a array (as for the `WAVE` category in this example). If several keywords are given (as for the `FLAT` category) all of them must be valid. A date range can also be given, see more info below.
+In this example, the calibration files are identified by their `ESO DPR TYPE` keyword.  If several values are allowed, they can be given in a array (as for the `WAVE` category in this example). If several keywords are given (as for the `FLAT` category) all of them must be valid. A date range can also be given, as for `DATE-OBS`.
 
-Optional keywords are:
-
-- `dir` :  the folder containing the calibration files (default `pwd`),
-- `files` : list of files or pattern,
-- `suffixes` : suffixes of the files  (default `[.fits, .fits.gz,.fits.Z]`),
-- `include subdirectory` : if `true` parse all subdirectories
-- `exclude files` : patterns of files that must be excluded
-- `hdu` : name of the FITS HDU that contains the data (default `primary`).
-
-All the keywords given in the root of the file are set for all the categories (as `suffixes` in the example) but this can be overiden by keywords in each category (as `exptime` in the example).
-
-It is possible to restrict the calibration files by a range of dates:
-```yaml
-DATE-OBS:
-    min: 2022-04-01
-    max: 2022-04-13T12:24:10.003
-```
-Only files respecting `min <= file["DATE-OBS"] < max` are kept.
-
+Find more information about YAML configuration in the "doc/" folder.
