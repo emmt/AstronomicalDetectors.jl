@@ -302,6 +302,11 @@ function CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
     calibdata = CalibrationData{T}(detectoraxes, calib_cats)
 
     @info string("Reading ", nbfiles, " files for calibration (it can take a long time).")
+
+    # buffer to store successively frame by frame from files.
+    # stats are built iteratively so we can reuse the same buffer.
+    matrixbuffer = Matrix{T}(undef, length(roi[1]), length(roi[2]))
+
     for (catname, category) in config.categories
         for filepath in filepaths_by_cats[catname]
             FitsFile(filepath) do file
@@ -309,19 +314,16 @@ function CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
                 realdit = file[1][category.exptime].float # from primary hdu
                 hdu     = file[category.hdu]
 
-                if hdu.data_ndims == 2 || (hdu.data_ndims == 3 && hdu.data_size[3] == 1)
-                    matrix = read(Matrix{T}, hdu, (roi..., 1))
-                    frame = CalibrationDataFrame(catname, realdit, matrix ; roi=detectoraxes)
+                nbframes = (hdu.data_ndims == 2) ? 1                :
+                           (hdu.data_ndims == 3) ? hdu.data_size[3] :
+                           error(string("File ", filepath, " has incorrect dimensions , ",
+                                        hdu.data_size, " , so is excluded from the calibration."))
+
+                for f in 1:nbframes
+                    indices = (hdu.data_ndims == 2) ? roi : (roi..., f)
+                    read!(matrixbuffer, hdu, indices)
+                    frame = CalibrationDataFrame(catname, realdit, matrixbuffer ; roi=detectoraxes)
                     push!(calibdata, frame)
-
-                elseif hdu.data_ndims == 3 && hdu.data_size[3] >= 2
-                    cube = read(Array{T,3}, hdu, (roi..., :))
-                    sampler = CalibrationFrameSampler(cube, catname, realdit ; roi=detectoraxes)
-                    push!(calibdata, sampler)
-
-                else
-                    error(string("File ", filepath, " has incorrect dimensions , ",
-                                 hdu.data_size, " , so is excluded from the calibration."))
                 end
             end
         end
