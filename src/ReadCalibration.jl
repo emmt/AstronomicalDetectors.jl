@@ -273,61 +273,31 @@ find the files to feed to each category. Please note that `config` may contain r
 will be resolved from the working current dir at the time when this constructor is called. To
 modify the directory from which relative paths will be resolved, use parameter `basedir`.
 """
-function CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
+function ScientificDetectors.CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
 ) where {T<:AbstractFloat}
 
-    calib_cats = [CalibrationCategory(name,cat) for (name,cat) in config.categories]
+    categories = map(Base.splat(CalibrationCategory), config.categories)
 
-    filepaths_by_cats = find_and_filter_files_by_category(config ; basedir=basedir)
-
-    nbfiles = sum(length.(values(filepaths_by_cats)))
-    nbfiles > 0 || error("Zero files for calibration.")
+    cats_to_files = find_and_filter_files_by_category(config ; basedir=basedir)
+    files_to_cats = ScientificDetectors.Calibration.reverse_cat_dict(cats_to_files)
 
     roi = config.roi
-
-    # if width or height is `:` we take the first file and use its size
-    if roi[1] isa Colon || roi[2] isa Colon
-        for (catname, files) in filepaths_by_cats
-            if !isempty(files)
-                (width, height) = FitsImageHDU( FitsFile(first(files)), 1 ).data_size[1:2]
-                if roi[1] isa Colon ; roi = (1:1:width, roi[2]    ) end
-                if roi[2] isa Colon ; roi = (roi[1]   , 1:1:height) end
-                break
+    # if roi contains a `:`, we take the first file and use the full length of the axis
+    if Colon() in roi
+        data_size = FitsFile(f -> f[1].data_size, first(keys(files_to_cats)))
+        roi = map(enumerate(roi)) do (i,rng)
+            if rng === Colon() ; data_size[i]
+            else rng
             end
         end
     end
+    roi = DetectorAxes(roi)
 
-    detectoraxes = DetectorAxes(roi)
-
-    calibdata = CalibrationData{T}(detectoraxes, calib_cats)
+    cats_exptimes = Dict( (name => cat.exptime) for (name => cat) in config.categories)
+    cats_hduindex = Dict( (name => cat.hdu)     for (name => cat) in config.categories)
     
-    @info string("Reading ", nbfiles, " files for calibration (it can take a long time).")
-    for (catname, category) in config.categories
-        for filepath in filepaths_by_cats[catname]
-            FitsFile(filepath) do file
-            
-                realdit = file[1][category.exptime].float # from primary hdu
-                hdu     = file[category.hdu]
-                
-                if hdu.data_ndims == 2 || (hdu.data_ndims == 3 && hdu.data_size[3] == 1)
-                    matrix = read(Matrix{T}, hdu, (roi..., 1))
-                    frame = CalibrationDataFrame(catname, realdit, matrix ; roi=detectoraxes)
-                    push!(calibdata, frame)
-                    
-                elseif hdu.data_ndims == 3 && hdu.data_size[3] >= 2
-                    cube = read(Array{T,3}, hdu, (roi..., :))
-                    sampler = CalibrationFrameSampler(cube, catname, realdit ; roi=detectoraxes)
-                    push!(calibdata, sampler)
-                    
-                else
-                    error(string("File ", filepath, " has incorrect dimensions , ",
-                                 hdu.data_size, " , so is excluded from the calibration."))
-                end
-            end
-        end
-    end
-    
-    return calibdata
+    return CalibrationData{T}(
+        categories, files_to_cats, roi, cats_exptimes; datahduindex=cats_hduindex)
 end
 
 """
