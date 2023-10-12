@@ -276,7 +276,7 @@ modify the directory from which relative paths will be resolved, use parameter `
 function ScientificDetectors.CalibrationData{T}(config::Config ; basedir::AbstractString=pwd()
 ) where {T<:AbstractFloat}
 
-    categories = map(Base.splat(CalibrationCategory), config.categories)
+    categories = map(Base.splat(CalibrationCategory), collect(config.categories))
 
     cats_to_files = find_and_filter_files_by_category(config ; basedir=basedir)
     files_to_cats = ScientificDetectors.Calibration.reverse_cat_dict(cats_to_files)
@@ -285,19 +285,19 @@ function ScientificDetectors.CalibrationData{T}(config::Config ; basedir::Abstra
     # if roi contains a `:`, we take the first file and use the full length of the axis
     if Colon() in roi
         data_size = FitsFile(f -> f[1].data_size, first(keys(files_to_cats)))
-        roi = map(enumerate(roi)) do (i,rng)
-            if rng === Colon() ; data_size[i]
-            else rng
+        roi = ntuple(length(roi)) do i
+            if roi[i] === Colon() ; 1:1:data_size[i]
+            else roi[i]
             end
         end
     end
     roi = DetectorAxes(roi)
 
-    cats_exptimes = Dict( (name => cat.exptime) for (name => cat) in config.categories)
-    cats_hduindex = Dict( (name => cat.hdu)     for (name => cat) in config.categories)
+    cats_exptimes = Dict( (name => cat.exptime) for (name, cat) in config.categories)
+    cats_hduindex = Dict( (name => cat.hdu)     for (name, cat) in config.categories)
     
     return CalibrationData{T}(
-        categories, files_to_cats, roi, cats_exptimes; datahduindex=cats_hduindex)
+        categories, files_to_cats, roi, cats_exptimes; hduindex=cats_hduindex)
 end
 
 """
