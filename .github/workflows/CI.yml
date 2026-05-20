@@ -36,6 +36,10 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
+      - name: Add registries
+        run: julia -e 'import Pkg;
+                       Pkg.Registry.add(Pkg.RegistrySpec("General"));
+                       Pkg.Registry.add(Pkg.RegistrySpec(url = "https://github.com/emmt/EmmtRegistry"));'
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
