@@ -8,36 +8,41 @@ using Dates
 import ScientificDetectors.Calibration: prunecalibration
 
 """
-    fill_filedict!(filedict,catdict,dir)
+    find_files!(filecache,catdict,dir)
 
-fill dictionary `filedict` with fitsheader of all files in `dir` according to the keywords in `catdict`
-The dictionary  `filedict` key is the filepath.
+fill dictionary `filecache` with fitsheader of all files in `dir` according to the keywords in `catdict`
+The dictionary  `filecache` key is the filepath.
 
 """
-function fill_filedict!(filedict::Dict{String, FitsHeader},
-                        config::Dict{String, Any},
-                        dir::String)
+function find_files!(filecache::Dict{String, FitsHeader},
+                     config::Dict{String, Any},
+                     dir::String)
+    files_found = Dict{String,FitsHeader}()
     for filename in readdir(dir; join=true, sort=false)
         if !contains(filename,config["exclude files"])
             if isfile(filename)
                 if endswith(filename,config["suffixes"])
-                    get!(filedict, filename) do
-                        readfits(FitsHeader, filename)
-                    end
+                    files_found[filename] =
+                        get!(filecache, filename) do
+                            readfits(FitsHeader, filename)
+                        end
                 end
             elseif isdir(filename) && config["include subdirectory"]
-                fill_filedict!(filedict, config, filename)
+                merge!(files_found, find_files!(filecache, config, filename))
             end
         end
     end
+    return files_found
 end
 
-function fill_filedict!(filedict::Dict{String, FitsHeader},
-                        config::Dict{String, Any},
-                        dirs::Vector{String})
+function find_files!(filecache::Dict{String, FitsHeader},
+                     config::Dict{String, Any},
+                     dirs::Vector{String})
+    files_found = Dict{String,FitsHeader}()
     for dir in dirs
-        fill_filedict!(filedict,config,dir)
+        merge!(files_found, find_files!(filecache,config,dir))
     end
+    return files_found
 end
 
 
@@ -329,7 +334,7 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     global_config = get_global_config(dir,repr(roi))
     merge!(global_config, YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
 
-    filedict = Dict{String, FitsHeader}()
+    filecache = Dict{String, FitsHeader}()
 
     catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in global_config["categories"] ]
     local caldat::CalibrationData{Float64}
@@ -341,14 +346,13 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     for (cat,value) in global_config["categories"]
         cat_config =get_category_config(global_config)
         merge!(cat_config, value)
-        #empty!(filedict)
-        fill_filedict!(filedict,cat_config,cat_config["dir"])
-        haskey(cat_config,"files") && fill_filedict!(filedict,cat_config,cat_config["files"])
+        cat_files = find_files!(filecache,cat_config,cat_config["dir"])
+        haskey(cat_config,"files") && merge!(cat_files, find_files!(filecache,cat_config,cat_config["files"]))
         verb && @info "category: $cat"
-        filescat = filterkeyword(filedict, cat_config; verb=verb)
-        verb && (@info keys(filescat) ; @info "------------------")
-        if !isempty(filescat)
-            for (filename,fitshead) in filescat
+        filtered_cat_files = filterkeyword(cat_files, cat_config; verb=verb)
+        verb && (@info keys(filtered_cat_files) ; @info "------------------")
+        if !isempty(filtered_cat_files)
+            for (filename,fitshead) in filtered_cat_files
 
                 FitsFile(filename) do file
 
