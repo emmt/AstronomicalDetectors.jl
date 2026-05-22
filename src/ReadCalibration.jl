@@ -18,9 +18,9 @@ function fill_filedict!(filedict::Dict{String, FitsHeader},
                         catdict::Dict{String, Any},
                         dir::String)
     for filename in readdir(dir; join=true, sort=false)
-        if !contains(filename,catdict["exclude files"])
+        if !contains_any(filename, catdict["exclude files"])
             if isfile(filename)
-                if endswith(filename,catdict["suffixes"])
+                if endswith_any(filename, catdict["suffixes"])
                     get!(filedict, filename) do
                         readfits(FitsHeader, filename)
                     end
@@ -40,16 +40,18 @@ function fill_filedict!(filedict::Dict{String, FitsHeader},
     end
 end
 
+contains_any(arg...) = contains(arg...)
+endswith_any(arg...) = endswith(arg...)
 
 """
-    contains(chain::Union{AbstractString,Vector{AbstractString}}, pattern::Vector{AbstractString})
+    contains_any(chain::Union{AbstractString,Vector{AbstractString}}, patterns::Vector{<:AbstractString})
 
-Overloading of Base.contains for vectors of string. Return `true` if a `chain`
-contains one of the patterns given in `pattern`
+Return `true` if `chain` contains one of the strings in `patterns`.
 """
-function Base.contains(chain::Union{String,Vector{String}}, pattern::Vector{String})
-    for str in pattern
-        if contains(chain,str)
+function contains_any(chain::Union{AbstractString,Vector{<:AbstractString}},
+                      patterns::Vector{<:AbstractString})
+    for str in patterns
+        if contains_any(chain, str)
             return true
         end
     end
@@ -57,14 +59,13 @@ function Base.contains(chain::Union{String,Vector{String}}, pattern::Vector{Stri
 end
 
 """
-    contains(chain::Vector{String}, pattern::String)
+    contains_any(chains::Vector{<:AbstractString}, pattern::AbstractString)
 
-Overloading of Base.contains for vectors of string. Return `true` if one of the `chains`
-contains `pattern`
+Return `true` if one of the strings in `chains` contains `pattern`.
 """
-function Base.contains(chains::Vector{String}, pattern::AbstractString)
+function contains_any(chains::Vector{<:AbstractString}, pattern::AbstractString)
     for chain in chains
-        if contains(chain,pattern)
+        if contains(chain, pattern)
             return true
         end
     end
@@ -74,14 +75,14 @@ end
 
 
 """
-    endswith(chain::Union{String,Vector{String}}, pattern::Vector{String})
+    endswith_any(chain::Union{AbstractString,Vector{<:AbstractString}}, patterns::Vector{<:AbstractString})
 
-Overloading of Base.endswith for vectors of string. Return `true` if `chain`
-ends with one of the patterns given in `pattern`
+Return `true` if `chain` ends with one of the strings in `patterns`.
 """
-function Base.endswith(chain::Union{String,Vector{String}}, pattern::Vector{String})
-    for str in pattern
-        if endswith(chain,str)
+function endswith_any(chain::Union{AbstractString,Vector{<:AbstractString}},
+                      patterns::Vector{<:AbstractString})
+    for str in patterns
+        if endswith(chain, str)
             return true
         end
     end
@@ -89,14 +90,13 @@ function Base.endswith(chain::Union{String,Vector{String}}, pattern::Vector{Stri
 end
 
 """
-    endswith(chain::Vector{String}, pattern::String)
+    endswith_any(chains::Vector{<:AbstractString}, pattern::AbstractString)
 
-Overloading of Base.endswith for vectors of string. Return `true` if `chain`
-ends with `pattern`
+Return `true` if one of the strings in `chains` ends with `pattern`.
 """
-function Base.endswith(chains::Vector{String},pattern::AbstractString)
+function endswith_any(chains::Vector{<:AbstractString}, pattern::AbstractString)
     for chain in chains
-        if endswith(chain,pattern)
+        if endswith(chain, pattern)
             return true
         end
     end
