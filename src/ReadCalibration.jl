@@ -341,9 +341,9 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     for (cat,value) in global_config["categories"]
         cat_config =get_category_config(global_config)
         merge!(cat_config, value)
-        empty!(filedict)
-        fill_filedict!(filedict,global_config,cat_config["dir"])
-        haskey(cat_config,"files") && fill_filedict!(filedict,global_config,cat_config["files"])
+        #empty!(filedict)
+        fill_filedict!(filedict,cat_config,cat_config["dir"])
+        haskey(cat_config,"files") && fill_filedict!(filedict,cat_config,cat_config["files"])
         verb && @info "category: $cat"
         filescat = filterkeyword(filedict, cat_config; verb=verb)
         verb && (@info keys(filescat) ; @info "------------------")
