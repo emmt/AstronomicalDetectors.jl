@@ -8,35 +8,38 @@ using Dates
 import ScientificDetectors.Calibration: prunecalibration
 
 """
-    fill_filedict!(filedict,catdict,dir)
+    fill_catfiles!(filedict,catdict,dir)
 
 fill dictionary `filedict` with fitsheader of all files in `dir` according to the keywords in `catdict`
 The dictionary  `filedict` key is the filepath.
 
 """
-function fill_filedict!(filedict::Dict{String, FitsHeader},
+function fill_catfiles!(catfiles::Set{String},
                         catdict::Dict{String, Any},
+                        header_cache::Dict{String, FitsHeader},
                         dir::String)
     for filename in readdir(dir; join=true, sort=false)
         if !contains(filename,catdict["exclude files"])
             if isfile(filename)
                 if endswith(filename,catdict["suffixes"])
-                    get!(filedict, filename) do
+                    push!(catfiles, filename)
+                    get!(header_cache, filename) do
                         readfits(FitsHeader, filename)
                     end
                 end
             elseif isdir(filename) && catdict["include subdirectory"]
-                fill_filedict!(filedict, catdict, filename)
+                fill_catfiles!(catfiles, catdict, header_cache, filename)
             end
         end
     end
 end
 
-function fill_filedict!(filedict::Dict{String, FitsHeader},
+function fill_catfiles!(catfiles::Set{String},
                         catdict::Dict{String, Any},
+                        header_cache::Dict{String, FitsHeader},
                         dirs::Vector{String})
     for dir in dirs
-        fill_filedict!(filedict,catdict,dir)
+        fill_catfiles!(catfiles,catdict,header_cache,dir)
     end
 end
 
@@ -103,7 +106,7 @@ function Base.endswith(chains::Vector{String},pattern::AbstractString)
     return false
 end
 
-
+#= commented because unused
 """
     filterfilename(filelist,name)
 
@@ -117,6 +120,7 @@ function filterfilename(filelist::Dict{String, FitsHeader},name::Vector{String})
     pattern =Regex("("*join(name,")|(")*")")
     return filter(p->match(pattern,p.first) !== nothing,filelist)
 end
+=#
 
 """
     filtercat(filelist, keyword, targetvalue) -> filteredlist
@@ -124,13 +128,15 @@ end
 Creates a filtered list of `filelist`. Only files with card `keyword` with value `value` are kept.
 `targettype` serves as a join type between the target value and the header card.
 """
-function filtercat_singleval(filelist    ::Dict{String,FitsHeader},
-                             keyword     ::String,
-                             targetvalue ::T,
-                             targettype  ::Type{J}
-) ::Dict{String,FitsHeader} where {J, T<:J}
+function filtercat_singleval(catfiles     ::Set{String},
+                             header_cache ::Dict{String,FitsHeader},
+                             keyword      ::String,
+                             targetvalue  ::T,
+                             targettype   ::Type{J}
+) ::Set{String} where {J, T<:J}
 
-    return filter(filelist) do (filepath, header)
+    return filter(catfiles) do filepath
+        header = header_cache[filepath]
         card = get(header, keyword, nothing)
         card == nothing && return false
         valtype(card) <: J || begin
@@ -147,13 +153,15 @@ end
 Creates a filtered list of `filelist`. If at least one of the values is found, the file is kept.
 `targettype` serves as a join type between the target values and the header card.
 """
-function filtercat_severalvals(filelist     ::Dict{String,FitsHeader},
+function filtercat_severalvals(catfiles     ::Set{String},
+                               header_cache ::Dict{String,FitsHeader},
                                keyword      ::String,
                                targetvalues ::Vector{T},
                                targettype   ::Type{J}
-) ::Dict{String,FitsHeader} where {J, T<:J}
+) ::Set{String} where {J, T<:J}
 
-    return filter(filelist) do (filepath, header)
+    return filter(catfiles) do filepath
+        header = header_cache[filepath]
         card = get(header, keyword, nothing)
         card == nothing && return false
         valtype(card) <: J || begin
@@ -186,13 +194,15 @@ end
 
 Creates a filtered list of `filelist`. Only files with datemin <= file[keyword] < datemax are kept.
 """
-function filtercat_daterange(filelist ::Dict{String,FitsHeader},
+function filtercat_daterange(cafiles::Set{String},
+                             header_cache ::Dict{String,FitsHeader},
                              keyword ::String,
                              datemin ::Union{Date,DateTime},
                              datemax ::Union{Date,DateTime}
-) ::Dict{String,FitsHeader}
+) ::Set{String}
 
-    return filter(filelist) do (filepath, header)
+    return filter(cafiles) do filepath
+        header = header_cache[filepath]
 
         keyword in keys(header) || return false
         cardval = header[keyword].value(String)
@@ -212,20 +222,21 @@ end
 const SUPPORTED_VALUE_TYPES = [String, Bool, Integer, AbstractFloat]
 
 """
-Filters the `filelist` to keep only files where keyword is of the target value.
+Filters the `catfiles` to keep only files where keyword is of the target value.
 Target value can be of several kinds, see the doc.
 """
-function filtercat(filelist::Dict{String,FitsHeader},
+function filtercat(catfiles::Set{String},
+                   header_cache::Dict{String,FitsHeader},
                    keyword::String,
                    targetvalue::Any
-) ::Dict{String,FitsHeader}
+) ::Set{String}
 
     # case: single value of Complex type (unsupported)
     targetvalue isa Complex && error("Complex values not yet implemented")
 
     # case: single value of a supported type
     i = findfirst(T -> targetvalue isa T, SUPPORTED_VALUE_TYPES)
-    i != nothing && return filtercat_singleval(filelist, keyword,
+    i != nothing && return filtercat_singleval(catfiles, header_cache, keyword,
                                                targetvalue, SUPPORTED_VALUE_TYPES[i])
 
     # case: Vector of values
@@ -236,7 +247,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
 
         # case: supported eltype
         i = findfirst(T -> eltype(targetvalue) <: T, SUPPORTED_VALUE_TYPES)
-        i != nothing && return filtercat_severalvals(filelist, keyword,
+        i != nothing && return filtercat_severalvals(catfiles, header_cache, keyword,
                                                      targetvalue, SUPPORTED_VALUE_TYPES[i])
 
         # case: fail
@@ -252,7 +263,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
           && haskey(targetvalue, "max")
           && targetvalue["min"] isa Union{Date,DateTime}
           && targetvalue["max"] isa Union{Date,DateTime}
-        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"])
+        ) && return filtercat_daterange(catfiles, header_cache, keyword, targetvalue["min"], targetvalue["max"])
 
         # case: fail
         error("wrong Dictionnary targetvalue $targetvalue ; only date ranges are supported")
@@ -263,28 +274,29 @@ end
 
 
 """
-    newlist = filtercat(filelist::Dict{String, FitsHeader},catdict::Dict{String, Any})
+    newlist = filterkeyword(catfiles::Set{String},catdict::Dict{String, Any},header_cache::Dict{String, FitsHeader})
 
-Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `catdict`
+Filters `catfiles` so that each file respects `fitsheader[keyword] == value` for all keywords contained in `catdict`
 """
-function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any};
-                        verb::Bool=false)
+function filterkeyword(catfiles::Set{String},
+                       catdict::Dict{String, Any},
+                       header_cache::Dict{String, FitsHeader};
+                       verb::Bool=false)
     filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
     if length(keydict)>0
         for (keyword,value) in keydict
             if verb
-                initialsize = length(filelist)
+                initialsize = length(catfiles)
             end
-            filelist =  filtercat(filelist,keyword,value)
+            catfiles = filtercat(catfiles,header_cache,keyword,value)
             if verb
-                filteredsize = length(filelist)
+                filteredsize = length(catfiles)
                 @info "from $initialsize files, kept $filteredsize, by filter $keyword=$value"
             end
         end
     end
-    return filelist
+    return catfiles
 end
 
 function default_calibdict(dir::AbstractString,roi)
@@ -330,7 +342,7 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     #merge!(calibdict,vararg)
     merge!(calibdict,YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
 
-    filedict = Dict{String, FitsHeader}()
+    header_cache = Dict{String, FitsHeader}()
 
     catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in calibdict["categories"] ]
     local caldat::CalibrationData{Float64}
@@ -342,14 +354,15 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     for (cat,value) in calibdict["categories"]
         catdict =default_category_dict(calibdict)
         merge!(catdict, value)
-        empty!(filedict)
-        fill_filedict!(filedict,calibdict,catdict["dir"])
-        haskey(catdict,"files") && fill_filedict!(filedict,calibdict,catdict["files"])
+        catfiles = Set{String}()
+        fill_catfiles!(catfiles,calibdict,header_cache,catdict["dir"])
+        haskey(catdict,"files") && fill_catfiles!(catfiles,calibdict,header_cache,catdict["files"])
         verb && @info "category: $cat"
-        filescat = filterkeyword(filedict, catdict; verb=verb)
-        verb && (@info keys(filescat) ; @info "------------------")
-        if !isempty(filescat)
-            for (filename,fitshead) in filescat
+        catfiles = filterkeyword(catfiles, catdict, header_cache; verb=verb)
+        verb && (@info keys(catfiles) ; @info "------------------")
+        if !isempty(catfiles)
+            for filename in catfiles
+                fitshead = header_cache[filename]
 
                 FitsFile(filename) do file
 

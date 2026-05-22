@@ -82,6 +82,7 @@ end
 @testset "ReadCalibration.jl" begin
 
     @testset "filtercat single value" begin
+        catfiles = Set(["file1"])
         hdr = FitsHeader(
             "QUESTION" => "What is the answer?",
             "ANSWER" => 42,
@@ -89,76 +90,81 @@ end
             "HALF" => 1.5,
             "VOID" => nothing,
             "ESO INFORMATIVE MESSAGE" => "I like my keyword names to be long")
-        dict = Dict("file1" => hdr)
-        @test !isempty(filtercat(dict, "QUESTION", "What is the answer?"))
-        @test !isempty(filtercat(dict, "ANSWER", 42))
-        @test !isempty(filtercat(dict, "CLEVER", false))
-        @test !isempty(filtercat(dict, "HALF", 1.5e0))
-        @test !isempty(filtercat(dict, "HALF", 1.5f0))
-        @test !isempty(filtercat(dict, "ANSWER", Int8(42)))
-        @test !isempty(filtercat(dict, "ANSWER", UInt64(42)))
+        header_cache = Dict("file1" => hdr)
+        @test !isempty(filtercat(catfiles, header_cache, "QUESTION", "What is the answer?"))
+        @test !isempty(filtercat(catfiles, header_cache, "ANSWER", 42))
+        @test !isempty(filtercat(catfiles, header_cache, "CLEVER", false))
+        @test !isempty(filtercat(catfiles, header_cache, "HALF", 1.5e0))
+        @test !isempty(filtercat(catfiles, header_cache, "HALF", 1.5f0))
+        @test !isempty(filtercat(catfiles, header_cache, "ANSWER", Int8(42)))
+        @test !isempty(filtercat(catfiles, header_cache, "ANSWER", UInt64(42)))
         warnmsg = "card type Float64 is != from target value type String in file file1"
-        @test_warn warnmsg filtercat(dict, "HALF", "1.5")
+        @test_warn warnmsg filtercat(catfiles, header_cache, "HALF", "1.5")
         errormsg = "Complex values not yet implemented"
-        @test_throws ErrorException(errormsg) filtercat(dict, "HALF", 1.5+0im)
+        @test_throws ErrorException(errormsg) filtercat(catfiles, header_cache, "HALF", 1.5+0im)
         warnmsg = "card type Float64 is != from target value type Int64 in file file1"
-        @test_warn warnmsg filtercat(dict, "HALF", 1)
+        @test_warn warnmsg filtercat(catfiles, header_cache, "HALF", 1)
         warnmsg = "card type Int64 is != from target value type Float64 in file file1"
-        @test_warn warnmsg filtercat(dict, "ANSWER", 42e0)
+        @test_warn warnmsg filtercat(catfiles, header_cache, "ANSWER", 42e0)
         errormsg = "unsupported target value type Nothing"
-        @test_throws ErrorException(errormsg) filtercat(dict, "VOID", nothing)
+        @test_throws ErrorException(errormsg) filtercat(catfiles, header_cache, "VOID", nothing)
         warnmsg = "card type Nothing is != from target value type String in file file1"
-        @test_warn warnmsg filtercat(dict, "VOID", "something")
-        @test !isempty(filtercat(dict, "ESO INFORMATIVE MESSAGE",
+        @test_warn warnmsg filtercat(catfiles, header_cache, "VOID", "something")
+        @test !isempty(filtercat(catfiles, header_cache, "ESO INFORMATIVE MESSAGE",
                                        "I like my keyword names to be long"))
     end
 
     @testset "filtercat several value" begin
+        catfiles = Set(["file1"])
         hdr = FitsHeader("GOOD" => 2)
-        dict = Dict("file1" => hdr)
-        @test !isempty(filtercat(dict, "GOOD", [1, 2]))
+        header_cache = Dict("file1" => hdr)
+        @test !isempty(filtercat(catfiles, header_cache, "GOOD", [1, 2]))
         warnmsg = "card type Int64 is != from target value type Float64 in file file1"
-        @test_warn warnmsg filtercat(dict, "GOOD", [1.0, 2.0])
+        @test_warn warnmsg filtercat(catfiles, header_cache, "GOOD", [1.0, 2.0])
         errormsg = "eltype Any of the Vector target value is not supported"
-        @test_throws ErrorException(errormsg) filtercat(dict, "GOOD", [1, "2"])
+        @test_throws ErrorException(errormsg) filtercat(catfiles, header_cache, "GOOD", [1, "2"])
     end
 
     @testset "filtercat date range" begin
         # date range
-        filelist = Dict("TOTO" => FitsHeader("DATE" => "2023-11-20T08:00:10.123"))
+        catfiles = Set(["TOTO"])
+        header_cache = Dict("TOTO" => FitsHeader("DATE" => "2023-11-20T08:00:10.123"))
         keyword = "DATE"
         value = Dict{String,Any}(
             "min" => DateTime("2022-11-20T08:00:10.123"),
             "max" => DateTime("2024-11-20T08:00:10.123"))
-        filelist2 = filtercat(filelist, keyword, value)
-        @test filelist == filelist2
+        catfiles2 = filtercat(catfiles, header_cache, keyword, value)
+        @test catfiles == catfiles2
 
         # date range with fitsheader date with fourth millisecond in FITS file
-        filelist = Dict("TOTO" => FitsHeader("DATE" => "2023-11-20T08:00:10.1234"))
+        catfiles = Set(["TOTO"])
+        header_cache = Dict("TOTO" => FitsHeader("DATE" => "2023-11-20T08:00:10.1234"))
         keyword = "DATE"
         value = Dict{String,Any}(
             "min" => DateTime("2022-11-20T08:00:10.123"),
             "max" => DateTime("2024-11-20T08:00:10.123"))
-        filelist2 = filtercat(filelist, keyword, value)
-        @test filelist == filelist2
+        catfiles2 = filtercat(catfiles, header_cache, keyword, value)
+        @test catfiles == catfiles2
 
         # date range exclude
-        filelist = Dict("TOTO" => FitsHeader("DATE" => "2023-11-20T08:00:10.123"))
+        catfiles = Set(["TOTO"])
+        header_cache = Dict("TOTO" => FitsHeader("DATE" => "2023-11-20T08:00:10.123"))
         keyword = "DATE"
         value = Dict{String,Any}(
             "min" => DateTime("2022-11-20T08:00:10.123"),
             "max" => DateTime("2023-11-20T08:00:10.123"))
-        filelist2 = filtercat(filelist, keyword, value)
-        @test isempty(filelist2)
+        catfiles2 = filtercat(catfiles, header_cache, keyword, value)
+        @test isempty(catfiles2)
 
         # date range include
-        filelist = Dict("TOTO" => FitsHeader("DATE" => "2022-11-20T08:00:10.123"))
+        catfiles = Set(["TOTO"])
+        header_cache = Dict("TOTO" => FitsHeader("DATE" => "2022-11-20T08:00:10.123"))
         keyword = "DATE"
         value = Dict{String,Any}(
             "min" => DateTime("2022-11-20T08:00:10.123"),
             "max" => DateTime("2023-11-20T08:00:10.123"))
-        filelist2 = filtercat(filelist, keyword, value)
-        @test filelist == filelist2
+        catfiles2 = filtercat(catfiles, header_cache, keyword, value)
+        @test catfiles == catfiles2
 
         # yaml file, with a test with fourth millisecond
         mktemp()        do pathyaml,fileio
