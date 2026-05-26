@@ -7,43 +7,59 @@ using ScientificDetectors:CalibrationFrameSampler
 using Dates
 import ScientificDetectors.Calibration: prunecalibration
 
-"""
-    find_files!(filecache,catdict,dir)
 
-fill dictionary `filecache` with fitsheader of all files in `dir` according to the keywords in `catdict`
-The dictionary  `filecache` key is the filepath.
+function find_files(
+    paths ::Vector{String}
+    ; level::Int=0,
+      maxlevel::Int=0,
+      suffixes::Vector{String} = [],
+      exclude::Vector{String} = [])
 
-"""
-function find_files!(filecache::Dict{String, FitsHeader},
-                     config::Dict{String, Any},
-                     path::String)
-    files_found = Dict{String,FitsHeader}()
-    filenames = isdir(path) ? readdir(path; join=true, sort=false) : [path]
-    for filename in filenames
-        if !contains(filename,config["exclude files"])
-            if isfile(filename)
-                if endswith(filename,config["suffixes"])
-                    files_found[filename] =
-                        get!(filecache, filename) do
-                            readfits(FitsHeader, filename)
-                        end
-                end
-            elseif isdir(filename) && config["include subdirectory"]
-                merge!(files_found, find_files!(filecache, config, filename))
-            end
+    found_files = Set{String}()
+
+    (maxlevel != -1) && (level > maxlevel) && return found_files
+
+    for path in paths
+        if isfile(path)
+            isempty(suffixes) || any(s -> endswith(path, s), suffixes)  || continue
+            isempty(exclude)  || all(s -> !contains(path, s), exclude)  || continue
+            push!(found_files, path)
+        elseif isdir(path)
+            subpaths = readdir(path; join=true, sort=false)
+            sub_found_files = find_files(subpaths; level=level+1, maxlevel, suffixes, exclude)
+            union!(found_files, sub_found_files)
+        else
+            @error "unhandled path \"$path\""
         end
     end
-    return files_found
+    
+    return found_files
 end
 
-function find_files!(filecache::Dict{String, FitsHeader},
-                     config::Dict{String, Any},
-                     paths::Vector{String})
-    files_found = Dict{String,FitsHeader}()
-    for path in paths
-        merge!(files_found, find_files!(filecache,config,path))
+function find_config_files!(
+    filecache::Dict{String,FitsHeader},
+    config::Dict{String,Any})
+
+    suffixes = config["suffixes"]
+    exclude  = config["exclude files"]
+
+    found_files = find_files([config["dir"]]; suffixes, exclude,
+        maxlevel = config["include subdirectory"] ? -1 : 0)
+
+    if haskey(config, "files")
+        merge!(found_files, find_files(config["files"]; suffixes, exclude,
+            maxlevel = config["include subdirectory"] ? -1 : 1))
+            # maxlevel can be 1, because `files` can contain dir paths too, and we want to
+            # include their direct content, even when `include subdirectory` is false
     end
-    return files_found
+    
+    for file in found_files
+        get!(filecache, file) do
+            readfits(FitsHeader, file)
+        end
+    end
+    
+    return Dict{String,FitsHeader}(path => filecache[path] for path in found_files)
 end
 
 
@@ -347,8 +363,7 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
     for (cat,value) in global_config["categories"]
         cat_config =get_category_config(global_config)
         merge!(cat_config, value)
-        cat_files = find_files!(filecache,cat_config,cat_config["dir"])
-        haskey(cat_config,"files") && merge!(cat_files, find_files!(filecache,cat_config,cat_config["files"]))
+        cat_files = find_config_files!(filecache, cat_config)
         verb && @info "category: $cat"
         filtered_cat_files = filterkeyword(cat_files, cat_config; verb=verb)
         verb && (@info keys(filtered_cat_files) ; @info "------------------")
