@@ -16,9 +16,10 @@ The dictionary  `filecache` key is the filepath.
 """
 function find_files!(filecache::Dict{String, FitsHeader},
                      config::Dict{String, Any},
-                     dir::String)
+                     path::String)
     files_found = Dict{String,FitsHeader}()
-    for filename in readdir(dir; join=true, sort=false)
+    filenames = isdir(path) ? readdir(path; join=true, sort=false) : [path]
+    for filename in filenames
         if !contains(filename,config["exclude files"])
             if isfile(filename)
                 if endswith(filename,config["suffixes"])
@@ -37,10 +38,10 @@ end
 
 function find_files!(filecache::Dict{String, FitsHeader},
                      config::Dict{String, Any},
-                     dirs::Vector{String})
+                     paths::Vector{String})
     files_found = Dict{String,FitsHeader}()
-    for dir in dirs
-        merge!(files_found, find_files!(filecache,config,dir))
+    for path in paths
+        merge!(files_found, find_files!(filecache,config,path))
     end
     return files_found
 end
