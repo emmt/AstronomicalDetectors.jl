@@ -7,37 +7,59 @@ using ScientificDetectors:CalibrationFrameSampler
 using Dates
 import ScientificDetectors.Calibration: prunecalibration
 
-"""
-    fill_filedict!(filedict,catdict,dir)
 
-fill dictionary `filedict` with fitsheader of all files in `dir` according to the keywords in `catdict`
-The dictionary  `filedict` key is the filepath.
+function find_files(
+    paths ::Vector{String}
+    ; level::Int=0,
+      maxlevel::Int=0,
+      suffixes::Vector{String} = [],
+      exclude::Vector{String} = [])
 
-"""
-function fill_filedict!(filedict::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any},
-                        dir::String)
-    for filename in readdir(dir; join=true, sort=false)
-        if !contains_any(filename, catdict["exclude files"])
-            if isfile(filename)
-                if endswith_any(filename, catdict["suffixes"])
-                    get!(filedict, filename) do
-                        readfits(FitsHeader, filename)
-                    end
-                end
-            elseif isdir(filename) && catdict["include subdirectory"]
-                fill_filedict!(filedict, catdict, filename)
-            end
+    found_files = Set{String}()
+
+    (maxlevel != -1) && (level > maxlevel) && return found_files
+
+    for path in paths
+        if isfile(path)
+            isempty(suffixes) || any(s -> endswith(path, s), suffixes)  || continue
+            isempty(exclude)  || all(s -> !contains(path, s), exclude)  || continue
+            push!(found_files, path)
+        elseif isdir(path)
+            subpaths = readdir(path; join=true, sort=false)
+            sub_found_files = find_files(subpaths; level=level+1, maxlevel, suffixes, exclude)
+            union!(found_files, sub_found_files)
+        else
+            @error "unhandled path \"$path\""
         end
     end
+    
+    return found_files
 end
 
-function fill_filedict!(filedict::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any},
-                        dirs::Vector{String})
-    for dir in dirs
-        fill_filedict!(filedict,catdict,dir)
+function find_config_files!(
+    filecache::Dict{String,FitsHeader},
+    config::Dict{String,Any})
+
+    suffixes = config["suffixes"]
+    exclude  = config["exclude files"]
+
+    found_files = find_files([config["dir"]]; suffixes, exclude,
+        maxlevel = config["include subdirectory"] ? -1 : 0)
+
+    if haskey(config, "files")
+        merge!(found_files, find_files(config["files"]; suffixes, exclude,
+            maxlevel = config["include subdirectory"] ? -1 : 1))
+            # maxlevel can be 1, because `files` can contain dir paths too, and we want to
+            # include their direct content, even when `include subdirectory` is false
     end
+    
+    for file in found_files
+        get!(filecache, file) do
+            readfits(FitsHeader, file)
+        end
+    end
+    
+    return Dict{String,FitsHeader}(path => filecache[path] for path in found_files)
 end
 
 contains_any(arg...) = contains(arg...)
@@ -263,15 +285,15 @@ end
 
 
 """
-    newlist = filtercat(filelist::Dict{String, FitsHeader},catdict::Dict{String, Any})
+    newlist = filtercat(filelist::Dict{String, FitsHeader},cat_config::Dict{String, Any})
 
-Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `catdict`
+Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `cat_config`
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        catdict::Dict{String, Any};
+                        cat_config::Dict{String, Any};
                         verb::Bool=false)
     filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
-    keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,catdict)
+    keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,cat_config)
     if length(keydict)>0
         for (keyword,value) in keydict
             if verb
@@ -287,7 +309,7 @@ function  filterkeyword(filelist::Dict{String, FitsHeader},
     return filelist
 end
 
-function default_calibdict(dir::AbstractString,roi)
+function get_global_config(dir::AbstractString,roi)
     calibdict = Dict{String, Any}()
     calibdict["dir"] = dir
     calibdict["hdu"] = 1
@@ -298,11 +320,11 @@ function default_calibdict(dir::AbstractString,roi)
     return calibdict
 end
 
-function default_category_dict(calibdict::Dict{String, Any})
+function get_category_config(global_config::Dict{String, Any})
     filteredkeywords = "(categories)";
-    catdict  = Dict{String, Any}()
-    merge!(catdict,filter(p->match(Regex(filteredkeywords), p.first) === nothing,calibdict));
-    return catdict
+    category_config  = Dict{String, Any}()
+    merge!(category_config,filter(p->match(Regex(filteredkeywords), p.first) === nothing,global_config));
+    return category_config
 end
 
 """
@@ -326,39 +348,36 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
                               prune::Bool=true,
                               verb::Bool=false)
 
-    calibdict = default_calibdict(dir,repr(roi))
-    #merge!(calibdict,vararg)
-    merge!(calibdict,YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
+    global_config = get_global_config(dir,repr(roi))
+    merge!(global_config, YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
 
-    filedict = Dict{String, FitsHeader}()
+    filecache = Dict{String, FitsHeader}()
 
-    catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in calibdict["categories"] ]
+    catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in global_config["categories"] ]
     local caldat::CalibrationData{Float64}
     local dataroi::DetectorAxes
     local inds::Tuple{OrdinalRange, OrdinalRange}
     isfirst = true
     width, height = -1, -1
 
-    for (cat,value) in calibdict["categories"]
-        catdict =default_category_dict(calibdict)
-        merge!(catdict, value)
-        empty!(filedict)
-        fill_filedict!(filedict,calibdict,catdict["dir"])
-        haskey(catdict,"files") && fill_filedict!(filedict,calibdict,catdict["files"])
+    for (cat,value) in global_config["categories"]
+        cat_config =get_category_config(global_config)
+        merge!(cat_config, value)
+        cat_files = find_config_files!(filecache, cat_config)
         verb && @info "category: $cat"
-        filescat = filterkeyword(filedict, catdict; verb=verb)
-        verb && (@info keys(filescat) ; @info "------------------")
-        if !isempty(filescat)
-            for (filename,fitshead) in filescat
+        filtered_cat_files = filterkeyword(cat_files, cat_config; verb=verb)
+        verb && (@info keys(filtered_cat_files) ; @info "------------------")
+        if !isempty(filtered_cat_files)
+            for (filename,fitshead) in filtered_cat_files
 
                 FitsFile(filename) do file
 
-                    hdu = file[catdict["hdu"]]
+                    hdu = file[cat_config["hdu"]]
 
                     if isfirst
                         width, height = hdu.data_size
-                        inds = (Base.OneTo(width)[eval(Meta.parse(catdict["roi"]))[1]],
-                        Base.OneTo(height)[eval(Meta.parse(catdict["roi"]))[2]])
+                        inds = (Base.OneTo(width)[eval(Meta.parse(cat_config["roi"]))[1]],
+                        Base.OneTo(height)[eval(Meta.parse(cat_config["roi"]))[2]])
                         dataroi = DetectorAxes(inds)
                         caldat = CalibrationData{Float64}(dataroi,catarr)
                         isfirst = false
@@ -368,14 +387,14 @@ function ReadCalibrationFiles(yaml_file::AbstractString;
                     end
                     if hdu.data_ndims == 2
                         data = read(hdu, inds...)
-                        sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]].float,data;roi=dataroi)
+                        sampler =  CalibrationDataFrame(cat,fitshead[cat_config["exptime"]].float,data;roi=dataroi)
                     else
                         data = read(hdu, (inds...,Base.OneTo(hdu.data_size[3]))...)
 
                         if hdu.data_size[3] > 1
-                            sampler = CalibrationFrameSampler(data,cat,fitshead[catdict["exptime"]].float;roi=dataroi)
+                            sampler = CalibrationFrameSampler(data,cat,fitshead[cat_config["exptime"]].float;roi=dataroi)
                         else
-                            sampler =  CalibrationDataFrame(cat,fitshead[catdict["exptime"]].float,view(data, :,:, 1);roi=dataroi)
+                            sampler =  CalibrationDataFrame(cat,fitshead[cat_config["exptime"]].float,view(data, :,:, 1);roi=dataroi)
                         end
                     end
                     push!(caldat, sampler)
