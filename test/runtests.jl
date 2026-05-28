@@ -71,8 +71,8 @@ using StatsBase: nobs
                     @test_nowarn res = read(CalibrationData{Float32}, calibinfos)
                     @test res isa CalibrationData
                     @test size(res.roi) == (3,3)
-                    @test collect(keys(res.stat_index)) ==
-                        [("OVNI", 42.0), ("SKY", 42.0), ("DARK", 42.0)]
+                    @test Set(keys(res.stat_index)) ==
+                        Set([("OVNI", 42.0), ("SKY", 42.0), ("DARK", 42.0)])
                     #TODO more tests with more data
                 end
             end
