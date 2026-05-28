@@ -20,9 +20,7 @@ export
     scan_calibrations,
     ReadCalibrationFiles
 
-using AstroFITS: FitsFile, FitsHeader, FitsImageHDU
-
-using SimpleExpressions
+using AstroFITS: FitsFile, FitsHeader
 
 using ScientificDetectors
 using ScientificDetectors: CalibrationCategory

@@ -4,6 +4,7 @@ using AstroFITS
 using Dates
 using AstronomicalDetectors.YAMLCalibrationFiles
 using AstronomicalDetectors.YAMLCalibrationFiles:filtercat
+using StatsBase: nobs
 
 @testset "AstronomicalDetectors.jl" begin
     # Write your tests here.
@@ -70,8 +71,8 @@ using AstronomicalDetectors.YAMLCalibrationFiles:filtercat
                     @test_nowarn res = read(CalibrationData{Float32}, calibinfos)
                     @test res isa CalibrationData
                     @test size(res.roi) == (3,3)
-                    @test collect(keys(res.stat_index)) ==
-                        [("OVNI", 42.0), ("SKY", 42.0), ("DARK", 42.0)]
+                    @test Set(keys(res.stat_index)) ==
+                        Set([("OVNI", 42.0), ("SKY", 42.0), ("DARK", 42.0)])
                     #TODO more tests with more data
                 end
             end
@@ -220,9 +221,9 @@ end
                 @test "flat"       in keys(data.src_index)
                 @test "background" in keys(data.src_index)
                 @test "wave"       in keys(data.src_index)
-                @test data.stat[data.stat_index[("FLAT",1)      ]].n == 1
-                @test data.stat[data.stat_index[("BACKGROUND",1)]].n == 1
-                @test data.stat[data.stat_index[("WAVE",1)      ]].n == 1
+                @test maximum(nobs(data.stat[data.stat_index[("FLAT",1)      ]])) == 1
+                @test maximum(nobs(data.stat[data.stat_index[("BACKGROUND",1)]])) == 1
+                @test maximum(nobs(data.stat[data.stat_index[("WAVE",1)      ]])) == 1
             end
         finally cd(initialdir) end
     end
