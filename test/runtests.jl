@@ -5,6 +5,7 @@ using Dates
 using AstronomicalDetectors.YAMLCalibrationFiles
 using AstronomicalDetectors.YAMLCalibrationFiles:filtercat
 using StatsBase: nobs
+using YAML
 
 @testset "AstronomicalDetectors.jl" begin
     # Write your tests here.
@@ -179,17 +180,15 @@ end
                    """
             write(pathyaml, yaml)
             writefits!(pathfits, hdr, Int[0 0 ; 0 0])
-            ReadCalibrationFiles(pathyaml; dir=pathdir)
+            read_calibration_files(pathyaml; dir=pathdir)
 
         end end end
     end
 
-    @testset "ReadCalibrationFiles with example_from_the_doc.yml" begin
+    @testset "read_calibration_files with example_from_the_doc.yml" begin
         initialdir = pwd()
-        try
-            mktempdir() do pathdir
-
-                cd(pathdir)
+        mktempdir() do pathdir
+            cd(pathdir) do
 
                 # build directory structure like in the example
                 mkdir("alice")
@@ -213,18 +212,27 @@ end
                 # put one in a wrong folder to see if it is correctly excluded
                 writefits!("alice/calibration-files/file3bis.fits", hdr3, [1;;])
 
-                data = ReadCalibrationFiles(initialdir * "/example_from_the_doc.yml")
+                calib_data = read_calibration_files(initialdir * "/example_from_the_doc.yml"
+                                              ; write_result_yaml="result.yml")
 
-                @test "FLAT"       in keys(data.cat_index)
-                @test "BACKGROUND" in keys(data.cat_index)
-                @test "WAVE"       in keys(data.cat_index)
-                @test "flat"       in keys(data.src_index)
-                @test "background" in keys(data.src_index)
-                @test "wave"       in keys(data.src_index)
-                @test maximum(nobs(data.stat[data.stat_index[("FLAT",1)      ]])) == 1
-                @test maximum(nobs(data.stat[data.stat_index[("BACKGROUND",1)]])) == 1
-                @test maximum(nobs(data.stat[data.stat_index[("WAVE",1)      ]])) == 1
+                result = YAML.load_file("result.yml")
+
+                @test "FLAT"       in keys(calib_data.cat_index)
+                @test "BACKGROUND" in keys(calib_data.cat_index)
+                @test "WAVE"       in keys(calib_data.cat_index)
+                @test "flat"       in keys(calib_data.src_index)
+                @test "background" in keys(calib_data.src_index)
+                @test "wave"       in keys(calib_data.src_index)
+                @test maximum(nobs(calib_data.stat[calib_data.stat_index[("FLAT",1)      ]])) == 1
+                @test maximum(nobs(calib_data.stat[calib_data.stat_index[("BACKGROUND",1)]])) == 1
+                @test maximum(nobs(calib_data.stat[calib_data.stat_index[("WAVE",1)      ]])) == 1
+                @test result["categories"]["FLAT"]["selected files"][1e0] == [
+                    "alice/calibration-files/file1.fits" ]
+                @test result["categories"]["BACKGROUND"]["selected files"][1e0] == [
+                    "alice/calibration-files/subfolder/file2.fits" ]
+                @test result["categories"]["WAVE"]["selected files"][1e0] == [
+                    "alice/wave-calibration-folder/file3.fits" ]
             end
-        finally cd(initialdir) end
+        end
     end
 end

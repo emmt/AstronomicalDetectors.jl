@@ -18,7 +18,7 @@ export
     CalibrationData,
     CalibrationInformation,
     scan_calibrations,
-    ReadCalibrationFiles
+    read_calibration_files
 
 using AstroFITS: FitsFile, FitsHeader
 
@@ -27,7 +27,7 @@ using ScientificDetectors: CalibrationCategory
 
 
 include("ReadCalibration.jl")
-import .YAMLCalibrationFiles: ReadCalibrationFiles
+import .YAMLCalibrationFiles: read_calibration_files
 
 struct CalibrationInformation
     path::String             # FITS file
