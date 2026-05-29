@@ -6,6 +6,7 @@ using YAML
 using ScientificDetectors:CalibrationFrameSampler
 using Dates
 import ScientificDetectors.Calibration: prunecalibration
+using ProgressMeter
 
 
 function find_files(
@@ -317,6 +318,7 @@ function get_global_config(dir::AbstractString,roi)
     calibdict["include subdirectory"] = true
     calibdict["exclude files"] = Vector{String}()
     calibdict["roi"] = roi
+    calibdict["exptime"] = "EXPTIME"
     return calibdict
 end
 
@@ -342,71 +344,159 @@ Process calibration files according to the YAML configuration file `yaml_file`.
 
 Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
 """
-function ReadCalibrationFiles(yaml_file::AbstractString;
+function ReadCalibrationFiles(yaml_file::AbstractString,
+                              ::Type{T}=Float32;
                               roi = (:,:),
                               dir = pwd(),
-                              prune::Bool=true,
-                              verb::Bool=false)
+                              verb::Bool=false,
+                              prune::Bool=true
+) where {T}
 
-    global_config = get_global_config(dir,repr(roi))
-    merge!(global_config, YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
+    high_yaml = YAML.load_file(yaml_file; dicttype=Dict{String,Any})
+    
+    low_yaml = select_files(high_yaml, roi, dir, verb)
+    
+    calib_data = CalibrationDataFromYAML(low_yaml, roi, dir, T; prune)
+
+    return calib_data
+end
+
+function select_files(high_yaml::AbstractDict,
+                      roi = (:,:),
+                      dir = pwd(),
+                      verb::Bool=false)
+    low_yaml = deepcopy(high_yaml)
+
+    global_config = get_global_config(dir, repr(roi))
+    merge!(global_config, high_yaml)
 
     filecache = Dict{String, FitsHeader}()
 
-    catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in global_config["categories"] ]
-    local caldat::CalibrationData{Float64}
-    local dataroi::DetectorAxes
-    local inds::Tuple{OrdinalRange, OrdinalRange}
-    isfirst = true
-    width, height = -1, -1
+    for (catname,cat) in low_yaml["categories"]
+        cat_config = get_category_config(global_config)
+        merge!(cat_config, cat)
 
-    for (cat,value) in global_config["categories"]
-        cat_config =get_category_config(global_config)
-        merge!(cat_config, value)
         cat_files = find_config_files!(filecache, cat_config)
-        verb && @info "category: $cat"
+        verb && @info "category: $catname"
         filtered_cat_files = filterkeyword(cat_files, cat_config; verb=verb)
         verb && (@info keys(filtered_cat_files) ; @info "------------------")
         if !isempty(filtered_cat_files)
             for (filename,fitshead) in filtered_cat_files
-
-                FitsFile(filename) do file
-
-                    hdu = file[cat_config["hdu"]]
-
-                    if isfirst
-                        width, height = hdu.data_size
-                        inds = (Base.OneTo(width)[eval(Meta.parse(cat_config["roi"]))[1]],
-                        Base.OneTo(height)[eval(Meta.parse(cat_config["roi"]))[2]])
-                        dataroi = DetectorAxes(inds)
-                        caldat = CalibrationData{Float64}(dataroi,catarr)
-                        isfirst = false
-                    else
-                        width  == hdu.data_size[1] || error("incompatible sizes")
-                        height == hdu.data_size[2] || error("incompatible sizes")
-                    end
-                    if hdu.data_ndims == 2
-                        data = read(hdu, inds...)
-                        sampler =  CalibrationDataFrame(cat,fitshead[cat_config["exptime"]].float,data;roi=dataroi)
-                    else
-                        data = read(hdu, (inds...,Base.OneTo(hdu.data_size[3]))...)
-
-                        if hdu.data_size[3] > 1
-                            sampler = CalibrationFrameSampler(data,cat,fitshead[cat_config["exptime"]].float;roi=dataroi)
-                        else
-                            sampler =  CalibrationDataFrame(cat,fitshead[cat_config["exptime"]].float,view(data, :,:, 1);roi=dataroi)
-                        end
-                    end
-                    push!(caldat, sampler)
-                end
+                selected_files = get!(cat, "selected files", Dict{Float64,Vector{String}}())
+                Δt = Float64(fitshead[cat_config["exptime"]].value())
+                selected_files_Δt = get!(selected_files, Δt, String[])
+                push!(selected_files_Δt, filename)
             end
         end
     end
-    if prune
-        caldat = prunecalibration(caldat)
+
+    return low_yaml
+end
+
+function CalibrationDataFromYAML(yaml::AbstractDict,
+                                 roi = (:,:),
+                                 dir = pwd(),
+                                 ::Type{T}=Float32
+                                 ; prune::Bool=true) where {T<:AbstractFloat}
+
+    global_config = get_global_config(dir, repr(roi))
+    merge!(global_config, yaml)
+    
+    # first pass where we:
+    # - count the number of files
+    # - resolve roi (the user is allowed to use Colons)
+    # - gather calibration categories
+    # we use two pass, because ScientificDetectors cannot handle pushing new CalibrationCategory
+    nb_files = 0
+    user_roi = eval(Meta.parse(global_config["roi"]))
+    resolved_roi = nothing
+    calib_cats = CalibrationCategory[]
+    for (catname, yaml_cat) in yaml["categories"]
+        cat_config = get_category_config(global_config)
+        merge!(cat_config, yaml_cat)
+        
+        for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
+            nb_files += length(fitspaths)
+            
+            if isnothing(resolved_roi)
+                fitspath = first(fitspaths)
+                size = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
+                inds = ntuple(length(user_roi)) do k
+                    Base.OneTo(size[k])[ user_roi[k] ]
+                end
+                resolved_roi = DetectorAxes(inds)
+            end
+            
+            push!(calib_cats, CalibrationCategory(catname, Meta.parse(cat_config["sources"])))
+        end
     end
 
-    return caldat
+    isempty(nb_files) && argument_error("`yaml` must give at least one calibration file")
+
+    calib_data = CalibrationData{T}(resolved_roi, calib_cats)
+    
+    # second pass where we read the data from FITS files
+    progress = Progress(nb_files; desc="reading calibration files")
+    for (catname, yaml_cat) in yaml["categories"]
+        cat_config = get_category_config(global_config)
+        merge!(cat_config, yaml_cat)
+        
+        for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
+            for fitspath in fitspaths
+                sampler = get_sampler(fitspath, catname, Δt, resolved_roi, T, cat_config["hdu"])
+                push!(calib_data, sampler)
+            end
+            next!(progress)
+        end
+    end
+    finish!(progress)
+
+    if prune
+        calib_data = prunecalibration(calib_data)
+    end
+
+    return calib_data
+end
+
+function get_sampler(fitspath::String,
+                     catname::String,
+                     Δt::Real,
+                     roi::DetectorAxes{N},
+                     ::Type{T}=Float32,
+                     hdu::Union{Integer,String}=1,
+) where {N,T}
+    all(ax -> ax.bin == 1, roi) || error("only bin=1 is handled for now")
+    FitsFile(fitspath) do fits
+        hdu = fits[hdu]
+        
+        (hdu isa FitsImageHDU) || argument_error(
+            "in FITS file \"$fitspath", HDU \"$hdu\" must be an image")
+
+        Δt = T(Δt) # convert to T, because ScientificDetectors allows only this
+
+        if hdu.data_ndims == N
+            frame = read(Array{T,N}, hdu, axes(roi)...)
+            sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi)
+
+        elseif hdu.data_ndims == N+1
+
+            if hdu.data_size[N+1] == 1
+                frame = read(Array{T,N}, hdu, axes(roi)..., 1)
+                sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi)
+
+            else
+                cube = read(Array{T,N+1}, hdu, axes(roi)..., :)
+                sampler = CalibrationFrameSampler(cube, catname, Δt; roi)
+            end
+
+        else
+            dimension_mismatch(string(
+                "in FITS file \"$fitspath\", HDU \"$hdu\" has $(hdu.data_ndims) dimensions, ",
+                "whereas we expect $N or $(N+1) dimensions for roi $roi"))
+        end
+        
+        sampler
+    end
 end
 
 end
