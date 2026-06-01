@@ -288,7 +288,7 @@ Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` 
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
                         cat_config::Dict{String, Any})
-    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
+    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(sub roi)|(selected files)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,cat_config)
     if length(keydict)>0
         for (keyword,value) in keydict
@@ -298,7 +298,7 @@ function  filterkeyword(filelist::Dict{String, FitsHeader},
     return filelist
 end
 
-function get_global_config(dir::AbstractString, roi)
+function get_global_config(dir::AbstractString, sub_roi)
     calibdict = Dict{String, Any}()
     calibdict["dir"] = dir
     calibdict["files"] = String[]
@@ -306,7 +306,7 @@ function get_global_config(dir::AbstractString, roi)
     calibdict["suffixes"] = [".fits", ".fits.gz", ".fits.Z"]
     calibdict["include subdirectory"] = true
     calibdict["exclude files"] = Vector{String}()
-    calibdict["roi"] = roi
+    calibdict["sub roi"] = sub_roi
     calibdict["exptime"] = "EXPTIME"
     return calibdict
 end
@@ -324,7 +324,7 @@ Process calibration files according to the YAML configuration file `yaml_file`.
 
 # Keyword parameters
 - `reset_selected_files=true`: by default, we will read files given in `dir`, and associate files to categories. However the input YAML is allowed to have existing "selected files" fields in its categories. `reset_selected_files=true` will reset these fields before searching for files.
-- `roi=(:,:)`: consider only a region of interest of the detector (e.g. `roi=(1:100,1:2:100)`)
+- `sub_roi=(:,:)`: take only a region of interest of the input FITS files (e.g. `sub_roi=(1:100,1:2:100)`). It's called "sub roi" because the input files may already have a ROI (some instruments allow it). There is no method to extract the ROI from the input FITS files yet.
 - `dir=pwd()`: directory containing the files.This keyword is overriden by the `dir` in the YAML config file.
 - `prune=true`: remove empty categories and sources
 - `write_result_yaml=""`: if a non-empty path is given, the result YAML (with the fields "selected files" filled) will be written to this path.
@@ -334,25 +334,25 @@ Return an instance of `CalibrationData` with all information statistics needed t
 function read_calibration_files(yaml_file::AbstractString,
                                 ::Type{T}=Float32,
                                 ; reset_selected_files::Bool=true,
-                                  roi = (:,:),
+                                  sub_roi = (:,:),
                                   dir = pwd(),
                                   prune::Bool=true,
                                   write_result_yaml::String="") where {T<:AbstractFloat}
     yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
-    read_calibration_files!(yaml, T; reset_selected_files, roi, dir, prune, write_result_yaml)
+    read_calibration_files!(yaml, T; reset_selected_files, sub_roi, dir, prune, write_result_yaml)
 end
 
 function read_calibration_files!(yaml::AbstractDict,
                                  ::Type{T}=Float32,
                                  ; reset_selected_files::Bool=true,
-                                   roi = (:,:),
+                                   sub_roi = (:,:),
                                    dir = pwd(),
                                    prune::Bool=true,
                                    write_result_yaml::String="") where {T<:AbstractFloat}
     reset_selected_files!(yaml)
-    select_files!(yaml; roi, dir)
+    select_files!(yaml; sub_roi, dir)
     isempty(write_result_yaml) || YAML.write_file(normpath(write_result_yaml), yaml)
-    calib_data = yaml_to_calibration_data(yaml, T; roi, dir, prune)
+    calib_data = yaml_to_calibration_data(yaml, T; sub_roi, dir, prune)
 end
 
 function reset_selected_files!(yaml::AbstractDict)
@@ -363,10 +363,10 @@ function reset_selected_files!(yaml::AbstractDict)
 end
 
 function select_files!(yaml::AbstractDict,
-                       ; roi = (:,:),
+                       ; sub_roi = (:,:),
                          dir = pwd())
 
-    global_config = get_global_config(dir, repr(roi))
+    global_config = get_global_config(dir, repr(sub_roi))
     merge!(global_config, yaml)
 
     # we keep encountered FITS headers in a cache, so we have at most one I/O call by file
@@ -400,38 +400,38 @@ end
 
 function yaml_to_calibration_data(yaml::AbstractDict,
                                   ::Type{T}=Float32
-                                  ; roi = (:,:),
+                                  ; sub_roi = (:,:),
                                     dir = pwd(),
                                     prune::Bool=true) where {T<:AbstractFloat}
 
-    global_config = get_global_config(dir, repr(roi))
+    global_config = get_global_config(dir, repr(sub_roi))
     merge!(global_config, yaml)
     
     # first pass where we:
     # - count the number of files
-    # - resolve roi (the user is allowed to use Colons)
+    # - resolve sub_roi (the user is allowed to use Colons)
     # - gather calibration categories
     # we use two pass, because ScientificDetectors does not have the
     # method `push!(::CalibrationData, ::CalibrationCategory)` so we have to
     # create every calibration category before adding data
     nb_files = 0
-    resolved_roi = nothing
+    sub_roi = nothing
     calib_cats = CalibrationCategory[]
     for (catname, yaml_cat) in yaml["categories"]
         cat_config = get_category_config(global_config, yaml_cat)
         
-        user_roi = eval(Meta.parse(cat_config["roi"]))
 
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             nb_files += length(fitspaths)
             
-            if isnothing(resolved_roi)
+            if isnothing(sub_roi)
                 fitspath = first(fitspaths)
                 size = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
-                inds = ntuple(length(user_roi)) do k
-                    Base.OneTo(size[k])[ user_roi[k] ]
+                yaml_sub_roi = eval(Meta.parse(cat_config["sub roi"]))
+                inds = ntuple(length(yaml_sub_roi)) do k
+                    Base.OneTo(size[k])[ yaml_sub_roi[k] ]
                 end
-                resolved_roi = DetectorAxes(inds)
+                sub_roi = DetectorAxes(inds)
             end
             
             push!(calib_cats, CalibrationCategory(catname, Meta.parse(cat_config["sources"])))
@@ -440,7 +440,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
 
     isempty(nb_files) && argument_error("`yaml` must give at least one calibration file")
 
-    calib_data = CalibrationData{T}(resolved_roi, calib_cats)
+    calib_data = CalibrationData{T}(sub_roi, calib_cats)
     
     # second pass where we read the data from FITS files
     progress = Progress(nb_files; desc="reading calibration files")
@@ -449,7 +449,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
         
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             for fitspath in fitspaths
-                sampler = read_sampler(fitspath, catname, Δt, resolved_roi, T, cat_config["hdu"])
+                sampler = read_sampler(fitspath, catname, Δt, sub_roi, T, cat_config["hdu"])
                 push!(calib_data, sampler)
             end
             next!(progress)
@@ -467,11 +467,11 @@ end
 function read_sampler(fitspath::String,
                       catname::String,
                       Δt::Real,
-                      roi::DetectorAxes{N},
+                      sub_roi::DetectorAxes{N},
                       ::Type{T}=Float32,
                       hdu::Union{Integer,String}=1,
 ) where {N,T}
-    all(ax -> ax.bin == 1, roi) || error("only bin=1 is handled for now")
+    all(ax -> ax.bin == 1, sub_roi) || error("only bin=1 is handled")
     FitsFile(fitspath) do fits
         hdu = fits[hdu]
         
@@ -481,24 +481,24 @@ function read_sampler(fitspath::String,
         Δt = T(Δt) # convert to T, because ScientificDetectors allows only this
 
         if hdu.data_ndims == N
-            frame = read(Array{T,N}, hdu, axes(roi)...)
-            sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi)
+            frame = read(Array{T,N}, hdu, axes(sub_roi)...)
+            sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi=sub_roi)
 
         elseif hdu.data_ndims == N+1
 
             if hdu.data_size[N+1] == 1
-                frame = read(Array{T,N}, hdu, axes(roi)..., 1)
-                sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi)
+                frame = read(Array{T,N}, hdu, axes(sub_roi)..., 1)
+                sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi=sub_roi)
 
             else
-                cube = read(Array{T,N+1}, hdu, axes(roi)..., :)
-                sampler = CalibrationFrameSampler(cube, catname, Δt; roi)
+                cube = read(Array{T,N+1}, hdu, axes(sub_roi)..., :)
+                sampler = CalibrationFrameSampler(cube, catname, Δt; roi=sub_roi)
             end
 
         else
             dimension_mismatch(string(
                 "in FITS file \"$fitspath\", HDU \"$hdu\" has $(hdu.data_ndims) dimensions, ",
-                "whereas we expect $N or $(N+1) dimensions for roi $roi"))
+                "whereas we expect $N or $(N+1) dimensions for sub_roi $sub_roi"))
         end
         
         sampler
