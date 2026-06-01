@@ -203,7 +203,8 @@ end
 
                 hdr2 = FitsHeader("ESO DET SEQ1 DIT" => 1e0, "INSTRUME" => "SPHERE",
                                   "DATE-OBS" => "2022-04-05", "ESO DPR TYPE" => "DARK")
-                writefits!("alice/calibration-files/subfolder/file2.fits", hdr2, [1;;])
+                writefits!("alice/calibration-files/subfolder/file2.fits",
+                    hdr2, [0;;], FitsHeader("EXTNAME" => "ABCD"), [1;;])
 
                 hdr3 = FitsHeader("SPECIAL DIT KEYWORD" => 1e0, "INSTRUME" => "SPHERE",
                                   "DATE-OBS" => "2022-04-05", "ESO DPR TYPE" => "LAMP,WAVE")
