@@ -259,7 +259,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
                                                      targetvalue, SUPPORTED_VALUE_TYPES[i])
 
         # case: fail
-        error("eltype $(eltype(targetvalue)) of the Vector target value is not supported")
+        error("$keyword eltype $(eltype(targetvalue)) of the Vector target value is not supported")
     end
 
     # case: Dictionnary
@@ -415,7 +415,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
     # method `push!(::CalibrationData, ::CalibrationCategory)` so we have to
     # create every calibration category before adding data
     nb_files = 0
-    sub_roi = nothing
+    resolved_sub_roi = nothing
     calib_cats = CalibrationCategory[]
     for (catname, yaml_cat) in yaml["categories"]
         cat_config = get_category_config(global_config, yaml_cat)
@@ -424,23 +424,22 @@ function yaml_to_calibration_data(yaml::AbstractDict,
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             nb_files += length(fitspaths)
             
-            if isnothing(sub_roi)
+            if isnothing(resolved_sub_roi)
                 fitspath = first(fitspaths)
-                size = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
+                datasize = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
                 yaml_sub_roi = eval(Meta.parse(cat_config["sub roi"]))
-                inds = ntuple(length(yaml_sub_roi)) do k
-                    Base.OneTo(size[k])[ yaml_sub_roi[k] ]
-                end
-                sub_roi = DetectorAxes(inds)
+                inds = (Base.OneTo(datasize[1])[ yaml_sub_roi[1] ],
+                        Base.OneTo(datasize[2])[ yaml_sub_roi[2] ])
+                resolved_sub_roi = DetectorAxes(inds)
             end
             
             push!(calib_cats, CalibrationCategory(catname, Meta.parse(cat_config["sources"])))
         end
     end
 
-    isempty(nb_files) && argument_error("`yaml` must give at least one calibration file")
+    iszero(nb_files) && throw(ArgumentError("no calibration file"))
 
-    calib_data = CalibrationData{T}(sub_roi, calib_cats)
+    calib_data = CalibrationData{T}(resolved_sub_roi, calib_cats)
     
     # second pass where we read the data from FITS files
     progress = Progress(nb_files; desc="reading calibration files")
@@ -449,7 +448,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
         
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             for fitspath in fitspaths
-                sampler = read_sampler(fitspath, catname, Δt, sub_roi, T, cat_config["hdu"])
+                sampler = read_sampler(fitspath, catname, Δt, resolved_sub_roi, T, cat_config["hdu"])
                 push!(calib_data, sampler)
             end
             next!(progress)
@@ -496,9 +495,9 @@ function read_sampler(fitspath::String,
             end
 
         else
-            dimension_mismatch(string(
+            throw(DimensionMismatch(string(
                 "in FITS file \"$fitspath\", HDU \"$hdu\" has $(hdu.data_ndims) dimensions, ",
-                "whereas we expect $N or $(N+1) dimensions for sub_roi $sub_roi"))
+                "whereas we expect $N or $(N+1) dimensions for sub_roi $sub_roi")))
         end
         
         sampler
