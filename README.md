@@ -3,15 +3,6 @@
 `AstronomicalDetectors` is a Julia package to deal with the calibration files
 of astronomical detectors like those of the VLT/Sphere instrument.
 
-Example of usage:
-
-```julia
-using AstronomicalDetectors, Glob
-list = scan_calibrations(glob("SPHER.2015-12-2*", dir))
-data = read(CalibrationData{Float64}, list; roi=(501:580,601:650))
-calib = ReducedCalibration(data)
-```
-
 ## YAML configuration file
 
 To deal with the numerous configuration of the different instruments, all calibrations files and keywords can be described in a YAML configuration file (see in the [config zoo folder](zoo)).
@@ -20,8 +11,7 @@ Usage:
 
 ```julia
 using AstronomicalDetectors, ScientificDetectors
-data = ReadCalibrationFiles("ymlfile.yml"; dir="path/to/calib/folder")
-calib = ReducedCalibration(data)
+calib_data = read_calibration_files("myconfig.yml")
 ```
 
 A YAML file should be as follow :

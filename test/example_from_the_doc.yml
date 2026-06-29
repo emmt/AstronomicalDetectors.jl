@@ -35,6 +35,7 @@ categories:
 
   BACKGROUND:  # another category, of name "BACKGROUND"
     sources: background
+    hdu: "ABCD"           # changing the data hdu setting for this category
     ESO DPR TYPE: ["DARK", "DARK,BACKGROUND"]   # at least one of these values must hold
 
   WAVE:

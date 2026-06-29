@@ -6,9 +6,10 @@ using YAML
 using ScientificDetectors:CalibrationFrameSampler
 using Dates
 import ScientificDetectors.Calibration: prunecalibration
+using ProgressMeter
 
 
-function find_files(
+function gather_filepaths(
     paths ::Vector{String}
     ; level::Int=0,
       maxlevel::Int=0,
@@ -26,40 +27,36 @@ function find_files(
             push!(found_files, path)
         elseif isdir(path)
             subpaths = readdir(path; join=true, sort=false)
-            sub_found_files = find_files(subpaths; level=level+1, maxlevel, suffixes, exclude)
+            sub_found_files = gather_filepaths(subpaths; level=level+1, maxlevel, suffixes, exclude)
             union!(found_files, sub_found_files)
         else
             @error "unhandled path \"$path\""
         end
     end
     
-    return found_files
+    found_files
 end
 
-function find_config_files!(
-    filecache::Dict{String,FitsHeader},
-    config::Dict{String,Any})
+function gather_filepaths_cat(
+    cat_config::Dict{String,Any})
 
-    suffixes = config["suffixes"]
-    exclude  = config["exclude files"]
+    found_files = Set{String}()
 
-    found_files = find_files([config["dir"]]; suffixes, exclude,
-        maxlevel = config["include subdirectory"] ? -1 : 0)
+    union!(found_files, gather_filepaths([cat_config["dir"]]
+                                         ; suffixes = cat_config["suffixes"],
+                                           exclude  = cat_config["exclude files"],
+                                           level    = 0,
+                                           maxlevel = cat_config["include subdirectory"] ? -1 : 0))
 
-    if haskey(config, "files")
-        merge!(found_files, find_files(config["files"]; suffixes, exclude,
-            maxlevel = config["include subdirectory"] ? -1 : 1))
-            # maxlevel can be 1, because `files` can contain dir paths too, and we want to
-            # include their direct content, even when `include subdirectory` is false
-    end
-    
-    for file in found_files
-        get!(filecache, file) do
-            readfits(FitsHeader, file)
-        end
-    end
-    
-    return Dict{String,FitsHeader}(path => filecache[path] for path in found_files)
+    union!(found_files, gather_filepaths(cat_config["files"]
+                                         ; suffixes = cat_config["suffixes"],
+                                           exclude  = cat_config["exclude files"],
+                                           level    = 0,
+                                           maxlevel = cat_config["include subdirectory"] ? -1 : 1))
+                                           # maxlevel is 1, because `files` can contain dir paths
+                                           # too, and we want to include their direct content, even
+                                           # when `include subdirectory` is false
+    found_files
 end
 
 contains_any(arg...) = contains(arg...)
@@ -290,123 +287,222 @@ end
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `cat_config`
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        cat_config::Dict{String, Any};
-                        verb::Bool=false)
-    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)"
+                        cat_config::Dict{String, Any})
+    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(sub roi)|(selected files)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,cat_config)
     if length(keydict)>0
         for (keyword,value) in keydict
-            if verb
-                initialsize = length(filelist)
-            end
             filelist =  filtercat(filelist,keyword,value)
-            if verb
-                filteredsize = length(filelist)
-                @info "from $initialsize files, kept $filteredsize, by filter $keyword=$value"
-            end
         end
     end
     return filelist
 end
 
-function get_global_config(dir::AbstractString,roi)
+function get_global_config(dir::AbstractString, sub_roi)
     calibdict = Dict{String, Any}()
     calibdict["dir"] = dir
+    calibdict["files"] = String[]
     calibdict["hdu"] = 1
     calibdict["suffixes"] = [".fits", ".fits.gz", ".fits.Z"]
     calibdict["include subdirectory"] = true
     calibdict["exclude files"] = Vector{String}()
-    calibdict["roi"] = roi
+    calibdict["sub roi"] = sub_roi
+    calibdict["exptime"] = "EXPTIME"
     return calibdict
 end
 
-function get_category_config(global_config::Dict{String, Any})
-    filteredkeywords = "(categories)";
-    category_config  = Dict{String, Any}()
-    merge!(category_config,filter(p->match(Regex(filteredkeywords), p.first) === nothing,global_config));
-    return category_config
+function get_category_config(global_config::Dict{String, Any}, yaml_cat::Dict{String,Any})
+    cat_config = filter(global_config) do (key,val); key != "categories" end 
+    merge!(cat_config, yaml_cat)
+    cat_config
 end
 
 """
-    ReadCalibrationFiles(yaml_file::AbstractString; roi::NTuple{2} = (:,:),  dir=pwd())
+    read_calibration_files(yaml_file::AbstractString, ::Type{T}=Float32; kwds...) -> CalibrationData
 
 Process calibration files according to the YAML configuration file `yaml_file`.
 
-- `roi` keyword can be used to consider only a region of interest of the detector (e.g. `roi=(1:100,1:2:100)`) default `roi=(:,:)`
-
-- `dir` is the directory containing the files. By default `dir=pwd()`. This keyword is overriden by the `dir` in the YAML config file
-
-- `prune`  by default `prune=true` remove empty categories and sources
-
-- `verb`  by default `verb=false` print information about filtering of files in categories
+# Keyword parameters
+- `reset_selected_files=true`: by default, we will read files given in `dir`, and associate files to categories. However the input YAML is allowed to have existing "selected files" fields in its categories. `reset_selected_files=true` will reset these fields before searching for files.
+- `sub_roi=(:,:)`: take only a region of interest of the input FITS files (e.g. `sub_roi=(1:100,1:2:100)`). It's called "sub roi" because the input files may already have a ROI (some instruments allow it). There is no method to extract the ROI from the input FITS files yet.
+- `dir=pwd()`: directory containing the files.This keyword is overriden by the `dir` in the YAML config file.
+- `prune=true`: remove empty categories and sources
+- `write_result_yaml=""`: if a non-empty path is given, the result YAML (with the fields "selected files" filled) will be written to this path.
 
 Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
 """
-function ReadCalibrationFiles(yaml_file::AbstractString;
-                              roi = (:,:),
-                              dir = pwd(),
-                              prune::Bool=true,
-                              verb::Bool=false)
+function read_calibration_files(yaml_file::AbstractString,
+                                ::Type{T}=Float32,
+                                ; reset_selected_files::Bool=true,
+                                  sub_roi = (:,:),
+                                  dir = pwd(),
+                                  prune::Bool=true,
+                                  write_result_yaml::String="") where {T<:AbstractFloat}
+    yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
+    read_calibration_files!(yaml, T; reset_selected_files, sub_roi, dir, prune, write_result_yaml)
+end
 
-    global_config = get_global_config(dir,repr(roi))
-    merge!(global_config, YAML.load_file(yaml_file; dicttype=Dict{String,Any}))
+function read_calibration_files!(yaml::AbstractDict,
+                                 ::Type{T}=Float32,
+                                 ; reset_selected_files::Bool=true,
+                                   sub_roi = (:,:),
+                                   dir = pwd(),
+                                   prune::Bool=true,
+                                   write_result_yaml::String="") where {T<:AbstractFloat}
+    reset_selected_files!(yaml)
+    select_files!(yaml; sub_roi, dir)
+    isempty(write_result_yaml) || YAML.write_file(normpath(write_result_yaml), yaml)
+    calib_data = yaml_to_calibration_data(yaml, T; sub_roi, dir, prune)
+end
 
-    filecache = Dict{String, FitsHeader}()
+function reset_selected_files!(yaml::AbstractDict)
+    for (catname,cat) in yaml["categories"]
+        delete!(cat, "selected files")
+    end
+    yaml
+end
 
-    catarr =  [CalibrationCategory(cata,Meta.parse(value["sources"])) for (cata,value) in global_config["categories"] ]
-    local caldat::CalibrationData{Float64}
-    local dataroi::DetectorAxes
-    local inds::Tuple{OrdinalRange, OrdinalRange}
-    isfirst = true
-    width, height = -1, -1
+function select_files!(yaml::AbstractDict,
+                       ; sub_roi = (:,:),
+                         dir = pwd())
 
-    for (cat,value) in global_config["categories"]
-        cat_config =get_category_config(global_config)
-        merge!(cat_config, value)
-        cat_files = find_config_files!(filecache, cat_config)
-        verb && @info "category: $cat"
-        filtered_cat_files = filterkeyword(cat_files, cat_config; verb=verb)
-        verb && (@info keys(filtered_cat_files) ; @info "------------------")
+    global_config = get_global_config(dir, repr(sub_roi))
+    merge!(global_config, yaml)
+
+    # we keep encountered FITS headers in a cache, so we have at most one I/O call by file
+    headers_cache = Dict{String, FitsHeader}()
+
+    for (catname,yaml_cat) in yaml["categories"]
+        cat_config = get_category_config(global_config, yaml_cat)
+
+        cat_filepaths = gather_filepaths_cat(cat_config)
+        
+        for path in cat_filepaths
+            get!(headers_cache, path) do; readfits(FitsHeader, path) end
+        end
+    
+        cat_files = Dict{String,FitsHeader}(path => headers_cache[path] for path in cat_filepaths)
+        
+        filtered_cat_files = filterkeyword(cat_files, cat_config)
+
         if !isempty(filtered_cat_files)
-            for (filename,fitshead) in filtered_cat_files
-
-                FitsFile(filename) do file
-
-                    hdu = file[cat_config["hdu"]]
-
-                    if isfirst
-                        width, height = hdu.data_size
-                        inds = (Base.OneTo(width)[eval(Meta.parse(cat_config["roi"]))[1]],
-                        Base.OneTo(height)[eval(Meta.parse(cat_config["roi"]))[2]])
-                        dataroi = DetectorAxes(inds)
-                        caldat = CalibrationData{Float64}(dataroi,catarr)
-                        isfirst = false
-                    else
-                        width  == hdu.data_size[1] || error("incompatible sizes")
-                        height == hdu.data_size[2] || error("incompatible sizes")
-                    end
-                    if hdu.data_ndims == 2
-                        data = read(hdu, inds...)
-                        sampler =  CalibrationDataFrame(cat,fitshead[cat_config["exptime"]].float,data;roi=dataroi)
-                    else
-                        data = read(hdu, (inds...,Base.OneTo(hdu.data_size[3]))...)
-
-                        if hdu.data_size[3] > 1
-                            sampler = CalibrationFrameSampler(data,cat,fitshead[cat_config["exptime"]].float;roi=dataroi)
-                        else
-                            sampler =  CalibrationDataFrame(cat,fitshead[cat_config["exptime"]].float,view(data, :,:, 1);roi=dataroi)
-                        end
-                    end
-                    push!(caldat, sampler)
-                end
+            selected_files = get!(yaml_cat, "selected files", Dict{Float64,Vector{String}}())
+            for (path, fitshead) in filtered_cat_files
+                Δt = Float64(fitshead[cat_config["exptime"]].value())
+                selected_files_Δt = get!(selected_files, Δt, String[])
+                push!(selected_files_Δt, path)
             end
         end
     end
-    if prune
-        caldat = prunecalibration(caldat)
+
+    yaml
+end
+
+function yaml_to_calibration_data(yaml::AbstractDict,
+                                  ::Type{T}=Float32
+                                  ; sub_roi = (:,:),
+                                    dir = pwd(),
+                                    prune::Bool=true) where {T<:AbstractFloat}
+
+    global_config = get_global_config(dir, repr(sub_roi))
+    merge!(global_config, yaml)
+    
+    # first pass where we:
+    # - count the number of files
+    # - resolve sub_roi (the user is allowed to use Colons)
+    # - gather calibration categories
+    # we use two pass, because ScientificDetectors does not have the
+    # method `push!(::CalibrationData, ::CalibrationCategory)` so we have to
+    # create every calibration category before adding data
+    nb_files = 0
+    sub_roi = nothing
+    calib_cats = CalibrationCategory[]
+    for (catname, yaml_cat) in yaml["categories"]
+        cat_config = get_category_config(global_config, yaml_cat)
+        
+
+        for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
+            nb_files += length(fitspaths)
+            
+            if isnothing(sub_roi)
+                fitspath = first(fitspaths)
+                size = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
+                yaml_sub_roi = eval(Meta.parse(cat_config["sub roi"]))
+                inds = ntuple(length(yaml_sub_roi)) do k
+                    Base.OneTo(size[k])[ yaml_sub_roi[k] ]
+                end
+                sub_roi = DetectorAxes(inds)
+            end
+            
+            push!(calib_cats, CalibrationCategory(catname, Meta.parse(cat_config["sources"])))
+        end
     end
 
-    return caldat
+    isempty(nb_files) && argument_error("`yaml` must give at least one calibration file")
+
+    calib_data = CalibrationData{T}(sub_roi, calib_cats)
+    
+    # second pass where we read the data from FITS files
+    progress = Progress(nb_files; desc="reading calibration files")
+    for (catname, yaml_cat) in yaml["categories"]
+        cat_config = get_category_config(global_config, yaml_cat)
+        
+        for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
+            for fitspath in fitspaths
+                sampler = read_sampler(fitspath, catname, Δt, sub_roi, T, cat_config["hdu"])
+                push!(calib_data, sampler)
+            end
+            next!(progress)
+        end
+    end
+    finish!(progress)
+
+    if prune
+        calib_data = prunecalibration(calib_data)
+    end
+
+    calib_data
+end
+
+function read_sampler(fitspath::String,
+                      catname::String,
+                      Δt::Real,
+                      sub_roi::DetectorAxes{N},
+                      ::Type{T}=Float32,
+                      hdu::Union{Integer,String}=1,
+) where {N,T}
+    all(ax -> ax.bin == 1, sub_roi) || error("only bin=1 is handled")
+    FitsFile(fitspath) do fits
+        hdu = fits[hdu]
+        
+        (hdu isa FitsImageHDU) || argument_error(
+            "in FITS file \"$fitspath", HDU \"$hdu\" must be an image")
+
+        Δt = T(Δt) # convert to T, because ScientificDetectors allows only this
+
+        if hdu.data_ndims == N
+            frame = read(Array{T,N}, hdu, axes(sub_roi)...)
+            sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi=sub_roi)
+
+        elseif hdu.data_ndims == N+1
+
+            if hdu.data_size[N+1] == 1
+                frame = read(Array{T,N}, hdu, axes(sub_roi)..., 1)
+                sampler = CalibrationDataFrame{T,N}(catname, Δt, frame; roi=sub_roi)
+
+            else
+                cube = read(Array{T,N+1}, hdu, axes(sub_roi)..., :)
+                sampler = CalibrationFrameSampler(cube, catname, Δt; roi=sub_roi)
+            end
+
+        else
+            dimension_mismatch(string(
+                "in FITS file \"$fitspath\", HDU \"$hdu\" has $(hdu.data_ndims) dimensions, ",
+                "whereas we expect $N or $(N+1) dimensions for sub_roi $sub_roi"))
+        end
+        
+        sampler
+    end
 end
 
 end
