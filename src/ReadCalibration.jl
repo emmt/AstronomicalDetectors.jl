@@ -146,12 +146,16 @@ Creates a filtered list of `filelist`. Only files with card `keyword` with value
 function filtercat_singleval(filelist    ::Dict{String,FitsHeader},
                              keyword     ::String,
                              targetvalue ::T,
-                             targettype  ::Type{J}
+                             targettype  ::Type{J};
+                             verbose::Bool=false
 ) ::Dict{String,FitsHeader} where {J, T<:J}
 
     return filter(filelist) do (filepath, header)
         card = get(header, keyword, nothing)
-        card == nothing && return false
+         if isnothing(card)
+            verbose && @info "$filepath rejected because has no keyword $keyword"
+            return false
+        end
         valtype(card) <: J || begin
             @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
             return false
@@ -169,17 +173,23 @@ Creates a filtered list of `filelist`. If at least one of the values is found, t
 function filtercat_severalvals(filelist     ::Dict{String,FitsHeader},
                                keyword      ::String,
                                targetvalues ::Vector{T},
-                               targettype   ::Type{J}
+                               targettype   ::Type{J};
+                               verbose::Bool=false
 ) ::Dict{String,FitsHeader} where {J, T<:J}
 
     return filter(filelist) do (filepath, header)
         card = get(header, keyword, nothing)
-        card == nothing && return false
+        if isnothing(card)
+            verbose && @info "$filepath rejected because has no keyword $keyword"
+            return false
+        end
         valtype(card) <: J || begin
             @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
             return false
         end
-        return card.value(J) in targetvalues
+        test = card.value(J) in targetvalues
+        verbose && (!test) && @info "$filepath rejected because of keyword $keyword"
+        return test
     end
 end
 
@@ -208,7 +218,8 @@ Creates a filtered list of `filelist`. Only files with datemin <= file[keyword] 
 function filtercat_daterange(filelist ::Dict{String,FitsHeader},
                              keyword ::String,
                              datemin ::Union{Date,DateTime},
-                             datemax ::Union{Date,DateTime}
+                             datemax ::Union{Date,DateTime};
+                             verbose::Bool=false
 ) ::Dict{String,FitsHeader}
 
     return filter(filelist) do (filepath, header)
@@ -236,7 +247,8 @@ Target value can be of several kinds, see the doc.
 """
 function filtercat(filelist::Dict{String,FitsHeader},
                    keyword::String,
-                   targetvalue::Any
+                   targetvalue::Any;
+                   verbose::Bool=false
 ) ::Dict{String,FitsHeader}
 
     # case: single value of Complex type (unsupported)
@@ -245,7 +257,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
     # case: single value of a supported type
     i = findfirst(T -> targetvalue isa T, SUPPORTED_VALUE_TYPES)
     i != nothing && return filtercat_singleval(filelist, keyword,
-                                               targetvalue, SUPPORTED_VALUE_TYPES[i])
+                                               targetvalue, SUPPORTED_VALUE_TYPES[i]; verbose)
 
     # case: Vector of values
     targetvalue isa Vector && begin
@@ -256,7 +268,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
         # case: supported eltype
         i = findfirst(T -> eltype(targetvalue) <: T, SUPPORTED_VALUE_TYPES)
         i != nothing && return filtercat_severalvals(filelist, keyword,
-                                                     targetvalue, SUPPORTED_VALUE_TYPES[i])
+                                                     targetvalue, SUPPORTED_VALUE_TYPES[i]; verbose)
 
         # case: fail
         error("$keyword eltype $(eltype(targetvalue)) of the Vector target value is not supported")
@@ -271,7 +283,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
           && haskey(targetvalue, "max")
           && targetvalue["min"] isa Union{Date,DateTime}
           && targetvalue["max"] isa Union{Date,DateTime}
-        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"])
+        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"]; verbose)
 
         # case: fail
         error("wrong Dictionnary targetvalue $targetvalue ; only date ranges are supported")
@@ -287,12 +299,13 @@ end
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `cat_config`
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        cat_config::Dict{String, Any})
+                        cat_config::Dict{String, Any};
+                        verbose::Bool=false)
     filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(sub roi)|(selected files)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,cat_config)
     if length(keydict)>0
         for (keyword,value) in keydict
-            filelist =  filtercat(filelist,keyword,value)
+            filelist =  filtercat(filelist,keyword,value; verbose)
         end
     end
     return filelist
@@ -337,9 +350,10 @@ function read_calibration_files(yaml_file::AbstractString,
                                   sub_roi = (:,:),
                                   dir = pwd(),
                                   prune::Bool=true,
-                                  write_result_yaml::String="") where {T<:AbstractFloat}
+                                  write_result_yaml::String="",
+                                  verbose::Bool=false) where {T<:AbstractFloat}
     yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
-    read_calibration_files!(yaml, T; reset_selected_files, sub_roi, dir, prune, write_result_yaml)
+    read_calibration_files!(yaml, T; reset_selected_files, sub_roi, dir, prune, write_result_yaml, verbose)
 end
 
 function read_calibration_files!(yaml::AbstractDict,
@@ -348,9 +362,10 @@ function read_calibration_files!(yaml::AbstractDict,
                                    sub_roi = (:,:),
                                    dir = pwd(),
                                    prune::Bool=true,
-                                   write_result_yaml::String="") where {T<:AbstractFloat}
+                                   write_result_yaml::String="",
+                                   verbose::Bool=false) where {T<:AbstractFloat}
     reset_selected_files!(yaml)
-    select_files!(yaml; sub_roi, dir)
+    select_files!(yaml; sub_roi, dir, verbose)
     isempty(write_result_yaml) || YAML.write_file(normpath(write_result_yaml), yaml)
     calib_data = yaml_to_calibration_data(yaml, T; sub_roi, dir, prune)
 end
@@ -364,7 +379,8 @@ end
 
 function select_files!(yaml::AbstractDict,
                        ; sub_roi = (:,:),
-                         dir = pwd())
+                         dir = pwd(),
+                         verbose::Bool=false)
 
     global_config = get_global_config(dir, repr(sub_roi))
     merge!(global_config, yaml)
@@ -374,6 +390,7 @@ function select_files!(yaml::AbstractDict,
 
     for (catname,yaml_cat) in yaml["categories"]
         cat_config = get_category_config(global_config, yaml_cat)
+        verbose && @info "starting category \"$catname\""
 
         cat_filepaths = gather_filepaths_cat(cat_config)
         
@@ -383,7 +400,12 @@ function select_files!(yaml::AbstractDict,
     
         cat_files = Dict{String,FitsHeader}(path => headers_cache[path] for path in cat_filepaths)
         
-        filtered_cat_files = filterkeyword(cat_files, cat_config)
+        filtered_cat_files = filterkeyword(cat_files, cat_config; verbose)
+
+        verbose && @info "selected files for category \"$catname\":"
+        verbose && for filename in keys(filtered_cat_files)
+            @info filename
+        end
 
         if !isempty(filtered_cat_files)
             selected_files = get!(yaml_cat, "selected files", Dict{Float64,Vector{String}}())
