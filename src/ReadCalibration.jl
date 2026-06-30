@@ -278,7 +278,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
                                                      targetvalue, SUPPORTED_VALUE_TYPES[i]; verbose)
 
         # case: fail
-        error("$keyword eltype $(eltype(targetvalue)) of the Vector target value is not supported")
+        error("eltype $(eltype(targetvalue)) of the Vector target value is not supported")
     end
 
     # case: Dictionnary
