@@ -46,7 +46,10 @@ function gather_filepaths_cat(
                                          ; suffixes = cat_config["suffixes"],
                                            exclude  = cat_config["exclude files"],
                                            level    = 0,
-                                           maxlevel = cat_config["include subdirectory"] ? -1 : 0))
+                                           maxlevel = cat_config["include subdirectory"] ? -1 : 1))
+                                           # maxlevel = 1, we have one path which is a dir,
+                                           # and we want to read it, even
+                                           # when `include subdirectory` is false
 
     union!(found_files, gather_filepaths(cat_config["files"]
                                          ; suffixes = cat_config["suffixes"],
@@ -146,17 +149,23 @@ Creates a filtered list of `filelist`. Only files with card `keyword` with value
 function filtercat_singleval(filelist    ::Dict{String,FitsHeader},
                              keyword     ::String,
                              targetvalue ::T,
-                             targettype  ::Type{J}
+                             targettype  ::Type{J};
+                             verbose::Bool=false
 ) ::Dict{String,FitsHeader} where {J, T<:J}
 
     return filter(filelist) do (filepath, header)
         card = get(header, keyword, nothing)
-        card == nothing && return false
+         if isnothing(card)
+            verbose && @info "$filepath rejected because has no keyword $keyword"
+            return false
+        end
         valtype(card) <: J || begin
             @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
             return false
         end
-        return card.value(J) == targetvalue
+        test = card.value(J) == targetvalue
+        verbose && (!test) && @info "$filepath rejected because of keyword $keyword"
+        return test
     end
 end
 
@@ -169,17 +178,23 @@ Creates a filtered list of `filelist`. If at least one of the values is found, t
 function filtercat_severalvals(filelist     ::Dict{String,FitsHeader},
                                keyword      ::String,
                                targetvalues ::Vector{T},
-                               targettype   ::Type{J}
+                               targettype   ::Type{J};
+                               verbose::Bool=false
 ) ::Dict{String,FitsHeader} where {J, T<:J}
 
     return filter(filelist) do (filepath, header)
         card = get(header, keyword, nothing)
-        card == nothing && return false
+        if isnothing(card)
+            verbose && @info "$filepath rejected because has no keyword $keyword"
+            return false
+        end
         valtype(card) <: J || begin
             @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
             return false
         end
-        return card.value(J) in targetvalues
+        test = card.value(J) in targetvalues
+        verbose && (!test) && @info "$filepath rejected because of keyword $keyword"
+        return test
     end
 end
 
@@ -208,7 +223,8 @@ Creates a filtered list of `filelist`. Only files with datemin <= file[keyword] 
 function filtercat_daterange(filelist ::Dict{String,FitsHeader},
                              keyword ::String,
                              datemin ::Union{Date,DateTime},
-                             datemax ::Union{Date,DateTime}
+                             datemax ::Union{Date,DateTime};
+                             verbose::Bool=false
 ) ::Dict{String,FitsHeader}
 
     return filter(filelist) do (filepath, header)
@@ -222,7 +238,9 @@ function filtercat_daterange(filelist ::Dict{String,FitsHeader},
             @warn "keyword $keyword=$cardval cannot be parsed as DateTime in file $filepath"
             return false
         end
-        return (datemin <= carddate < datemax)
+        test = (datemin <= carddate < datemax)
+        verbose && (!test) && @info "$filepath rejected because of keyword $keyword"
+        return test
     end
 end
 
@@ -236,7 +254,8 @@ Target value can be of several kinds, see the doc.
 """
 function filtercat(filelist::Dict{String,FitsHeader},
                    keyword::String,
-                   targetvalue::Any
+                   targetvalue::Any;
+                   verbose::Bool=false
 ) ::Dict{String,FitsHeader}
 
     # case: single value of Complex type (unsupported)
@@ -245,7 +264,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
     # case: single value of a supported type
     i = findfirst(T -> targetvalue isa T, SUPPORTED_VALUE_TYPES)
     i != nothing && return filtercat_singleval(filelist, keyword,
-                                               targetvalue, SUPPORTED_VALUE_TYPES[i])
+                                               targetvalue, SUPPORTED_VALUE_TYPES[i]; verbose)
 
     # case: Vector of values
     targetvalue isa Vector && begin
@@ -256,7 +275,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
         # case: supported eltype
         i = findfirst(T -> eltype(targetvalue) <: T, SUPPORTED_VALUE_TYPES)
         i != nothing && return filtercat_severalvals(filelist, keyword,
-                                                     targetvalue, SUPPORTED_VALUE_TYPES[i])
+                                                     targetvalue, SUPPORTED_VALUE_TYPES[i]; verbose)
 
         # case: fail
         error("eltype $(eltype(targetvalue)) of the Vector target value is not supported")
@@ -271,7 +290,7 @@ function filtercat(filelist::Dict{String,FitsHeader},
           && haskey(targetvalue, "max")
           && targetvalue["min"] isa Union{Date,DateTime}
           && targetvalue["max"] isa Union{Date,DateTime}
-        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"])
+        ) && return filtercat_daterange(filelist, keyword, targetvalue["min"], targetvalue["max"]; verbose)
 
         # case: fail
         error("wrong Dictionnary targetvalue $targetvalue ; only date ranges are supported")
@@ -287,12 +306,13 @@ end
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `cat_config`
 """
 function  filterkeyword(filelist::Dict{String, FitsHeader},
-                        cat_config::Dict{String, Any})
+                        cat_config::Dict{String, Any};
+                        verbose::Bool=false)
     filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(sub roi)|(selected files)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,cat_config)
     if length(keydict)>0
         for (keyword,value) in keydict
-            filelist =  filtercat(filelist,keyword,value)
+            filelist =  filtercat(filelist,keyword,value; verbose)
         end
     end
     return filelist
@@ -337,9 +357,10 @@ function read_calibration_files(yaml_file::AbstractString,
                                   sub_roi = (:,:),
                                   dir = pwd(),
                                   prune::Bool=true,
-                                  write_result_yaml::String="") where {T<:AbstractFloat}
+                                  write_result_yaml::String="",
+                                  verbose::Bool=false) where {T<:AbstractFloat}
     yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
-    read_calibration_files!(yaml, T; reset_selected_files, sub_roi, dir, prune, write_result_yaml)
+    read_calibration_files!(yaml, T; reset_selected_files, sub_roi, dir, prune, write_result_yaml, verbose)
 end
 
 function read_calibration_files!(yaml::AbstractDict,
@@ -348,9 +369,10 @@ function read_calibration_files!(yaml::AbstractDict,
                                    sub_roi = (:,:),
                                    dir = pwd(),
                                    prune::Bool=true,
-                                   write_result_yaml::String="") where {T<:AbstractFloat}
+                                   write_result_yaml::String="",
+                                   verbose::Bool=false) where {T<:AbstractFloat}
     reset_selected_files!(yaml)
-    select_files!(yaml; sub_roi, dir)
+    select_files!(yaml; sub_roi, dir, verbose)
     isempty(write_result_yaml) || YAML.write_file(normpath(write_result_yaml), yaml)
     calib_data = yaml_to_calibration_data(yaml, T; sub_roi, dir, prune)
 end
@@ -362,9 +384,18 @@ function reset_selected_files!(yaml::AbstractDict)
     yaml
 end
 
+function select_files!(yaml_file::AbstractString,
+              ; sub_roi = (:,:),
+                dir = pwd(),
+                verbose::Bool=false)
+    yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
+    select_files!(yaml; sub_roi, dir, verbose)
+end
+
 function select_files!(yaml::AbstractDict,
                        ; sub_roi = (:,:),
-                         dir = pwd())
+                         dir = pwd(),
+                         verbose::Bool=false)
 
     global_config = get_global_config(dir, repr(sub_roi))
     merge!(global_config, yaml)
@@ -374,6 +405,7 @@ function select_files!(yaml::AbstractDict,
 
     for (catname,yaml_cat) in yaml["categories"]
         cat_config = get_category_config(global_config, yaml_cat)
+        verbose && @info "starting category \"$catname\""
 
         cat_filepaths = gather_filepaths_cat(cat_config)
         
@@ -383,10 +415,17 @@ function select_files!(yaml::AbstractDict,
     
         cat_files = Dict{String,FitsHeader}(path => headers_cache[path] for path in cat_filepaths)
         
-        filtered_cat_files = filterkeyword(cat_files, cat_config)
+        verbose && isempty(cat_files) && @info "no candidate files found for category \"$catname\""
+        
+        filtered_cat_files = filterkeyword(cat_files, cat_config; verbose)
 
+        verbose && @info "selected files for category \"$catname\":"
+        verbose && for filename in keys(filtered_cat_files)
+            @info filename
+        end
+
+        selected_files = get!(yaml_cat, "selected files", Dict{Float64,Vector{String}}())
         if !isempty(filtered_cat_files)
-            selected_files = get!(yaml_cat, "selected files", Dict{Float64,Vector{String}}())
             for (path, fitshead) in filtered_cat_files
                 Δt = Float64(fitshead[cat_config["exptime"]].value())
                 selected_files_Δt = get!(selected_files, Δt, String[])
@@ -415,7 +454,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
     # method `push!(::CalibrationData, ::CalibrationCategory)` so we have to
     # create every calibration category before adding data
     nb_files = 0
-    sub_roi = nothing
+    resolved_sub_roi = nothing
     calib_cats = CalibrationCategory[]
     for (catname, yaml_cat) in yaml["categories"]
         cat_config = get_category_config(global_config, yaml_cat)
@@ -424,23 +463,22 @@ function yaml_to_calibration_data(yaml::AbstractDict,
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             nb_files += length(fitspaths)
             
-            if isnothing(sub_roi)
+            if isnothing(resolved_sub_roi)
                 fitspath = first(fitspaths)
-                size = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
+                datasize = FitsFile(f -> f[cat_config["hdu"]].data_size, fitspath)
                 yaml_sub_roi = eval(Meta.parse(cat_config["sub roi"]))
-                inds = ntuple(length(yaml_sub_roi)) do k
-                    Base.OneTo(size[k])[ yaml_sub_roi[k] ]
-                end
-                sub_roi = DetectorAxes(inds)
+                inds = (Base.OneTo(datasize[1])[ yaml_sub_roi[1] ],
+                        Base.OneTo(datasize[2])[ yaml_sub_roi[2] ])
+                resolved_sub_roi = DetectorAxes(inds)
             end
             
             push!(calib_cats, CalibrationCategory(catname, Meta.parse(cat_config["sources"])))
         end
     end
 
-    isempty(nb_files) && argument_error("`yaml` must give at least one calibration file")
+    iszero(nb_files) && throw(ArgumentError("no calibration file"))
 
-    calib_data = CalibrationData{T}(sub_roi, calib_cats)
+    calib_data = CalibrationData{T}(resolved_sub_roi, calib_cats)
     
     # second pass where we read the data from FITS files
     progress = Progress(nb_files; desc="reading calibration files")
@@ -449,7 +487,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
         
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             for fitspath in fitspaths
-                sampler = read_sampler(fitspath, catname, Δt, sub_roi, T, cat_config["hdu"])
+                sampler = read_sampler(fitspath, catname, Δt, resolved_sub_roi, T, cat_config["hdu"])
                 push!(calib_data, sampler)
             end
             next!(progress)
@@ -496,9 +534,9 @@ function read_sampler(fitspath::String,
             end
 
         else
-            dimension_mismatch(string(
+            throw(DimensionMismatch(string(
                 "in FITS file \"$fitspath\", HDU \"$hdu\" has $(hdu.data_ndims) dimensions, ",
-                "whereas we expect $N or $(N+1) dimensions for sub_roi $sub_roi"))
+                "whereas we expect $N or $(N+1) dimensions for sub_roi $sub_roi")))
         end
         
         sampler
