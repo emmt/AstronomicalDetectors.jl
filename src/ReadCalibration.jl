@@ -46,7 +46,10 @@ function gather_filepaths_cat(
                                          ; suffixes = cat_config["suffixes"],
                                            exclude  = cat_config["exclude files"],
                                            level    = 0,
-                                           maxlevel = cat_config["include subdirectory"] ? -1 : 0))
+                                           maxlevel = cat_config["include subdirectory"] ? -1 : 1))
+                                           # maxlevel = 1, we have one path which is a dir,
+                                           # and we want to read it, even
+                                           # when `include subdirectory` is false
 
     union!(found_files, gather_filepaths(cat_config["files"]
                                          ; suffixes = cat_config["suffixes"],
@@ -160,7 +163,9 @@ function filtercat_singleval(filelist    ::Dict{String,FitsHeader},
             @warn "card type $(valtype(card)) is != from target value type $T in file $filepath"
             return false
         end
-        return card.value(J) == targetvalue
+        test = card.value(J) == targetvalue
+        verbose && (!test) && @info "$filepath rejected because of keyword $keyword"
+        return test
     end
 end
 
@@ -233,7 +238,9 @@ function filtercat_daterange(filelist ::Dict{String,FitsHeader},
             @warn "keyword $keyword=$cardval cannot be parsed as DateTime in file $filepath"
             return false
         end
-        return (datemin <= carddate < datemax)
+        test = (datemin <= carddate < datemax)
+        verbose && (!test) && @info "$filepath rejected because of keyword $keyword"
+        return test
     end
 end
 
@@ -377,6 +384,14 @@ function reset_selected_files!(yaml::AbstractDict)
     yaml
 end
 
+function select_files!(yaml_file::AbstractString,
+              ; sub_roi = (:,:),
+                dir = pwd(),
+                verbose::Bool=false)
+    yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
+    select_files!(yaml; sub_roi, dir, verbose)
+end
+
 function select_files!(yaml::AbstractDict,
                        ; sub_roi = (:,:),
                          dir = pwd(),
@@ -400,6 +415,8 @@ function select_files!(yaml::AbstractDict,
     
         cat_files = Dict{String,FitsHeader}(path => headers_cache[path] for path in cat_filepaths)
         
+        verbose && isempty(cat_files) && @info "no candidate files found for category \"$catname\""
+        
         filtered_cat_files = filterkeyword(cat_files, cat_config; verbose)
 
         verbose && @info "selected files for category \"$catname\":"
@@ -407,8 +424,8 @@ function select_files!(yaml::AbstractDict,
             @info filename
         end
 
+        selected_files = get!(yaml_cat, "selected files", Dict{Float64,Vector{String}}())
         if !isempty(filtered_cat_files)
-            selected_files = get!(yaml_cat, "selected files", Dict{Float64,Vector{String}}())
             for (path, fitshead) in filtered_cat_files
                 Δt = Float64(fitshead[cat_config["exptime"]].value())
                 selected_files_Δt = get!(selected_files, Δt, String[])
