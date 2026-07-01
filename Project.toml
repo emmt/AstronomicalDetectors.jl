@@ -9,6 +9,7 @@ projects = ["test"]
 [deps]
 AstroFITS = "34e54ef0-c5bf-48ab-9e5d-cca51f35ed77"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+OnlineSampleStatistics = "455218f6-ed6f-43e9-ad07-c481a1567983"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 ScientificDetectors = "7137afbe-ade3-4903-9296-05966c540d95"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
@@ -16,6 +17,7 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 [compat]
 AstroFITS = "1"
 Dates = "1"
+OnlineSampleStatistics = ">= 0.3.4"
 ProgressMeter = "1.11.0"
 ScientificDetectors = "0.3"
 YAML = "0.4"
