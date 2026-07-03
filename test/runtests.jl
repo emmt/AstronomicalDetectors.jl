@@ -121,7 +121,7 @@ end
         @test !isempty(filtercat(dict, "GOOD", [1, 2]))
         warnmsg = "card type Int64 is != from target value type Float64 in file file1"
         @test_warn warnmsg filtercat(dict, "GOOD", [1.0, 2.0])
-        errormsg = "eltype Any of the Vector target value is not supported"
+        errormsg = "for keyword GOOD, eltype Any of the Vector target value is not supported"
         @test_throws ErrorException(errormsg) filtercat(dict, "GOOD", [1, "2"])
     end
 
