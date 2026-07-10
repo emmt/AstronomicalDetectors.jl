@@ -28,8 +28,7 @@ function gather_filepaths(
     found_files
 end
 
-function gather_filepaths_cat(
-    cat_config::AbstractDict{String,Any})
+function gather_filepaths_cat(cat_config::AbstractDict)
 
     found_files = Set{String}()
 
@@ -292,14 +291,14 @@ end
 
 
 """
-    newlist = filtercat(filelist::Dict{String, FitsHeader},cat_config::Dict{String, Any})
+    newlist = filtercat(filelist::Dict{String, FitsHeader},cat_config::AbstractDict)
 
 Build a `newlist` dictionnary of all files where `fitsheader[keyword] == value` for all keywords contained in `cat_config`
 """
 function  filterkeyword(filelist::AbstractDict{String, FitsHeader},
-                        cat_config::AbstractDict{String, Any};
+                        cat_config::AbstractDict;
                         verbose::Bool=false)
-    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)|(selected files)"
+    filteredkeywords = "(dir)|(files)|(suffixes)|(include subdirectory)|(exclude files)|(exptime)|(hdu)|(sources)|(roi)|(selected files)|(typefloat)|(categories)"
     keydict =  filter(p->match(Regex(filteredkeywords), p.first) === nothing,cat_config)
     if length(keydict)>0
         for (keyword,value) in keydict
@@ -309,63 +308,58 @@ function  filterkeyword(filelist::AbstractDict{String, FitsHeader},
     return filelist
 end
 
-function get_global_config(dir::AbstractString, roi)
-    calibdict = Dict{String, Any}()
-    calibdict["dir"] = dir
-    calibdict["files"] = String[]
-    calibdict["hdu"] = 1
-    calibdict["suffixes"] = [".fits", ".fits.gz", ".fits.Z"]
-    calibdict["include subdirectory"] = true
-    calibdict["exclude files"] = Vector{String}()
-    calibdict["roi"] = roi
-    calibdict["exptime"] = "EXPTIME"
-    return calibdict
-end
-
-function get_category_config(global_config::AbstractDict{String, Any}, yaml_cat::AbstractDict{String,Any})
-    cat_config = filter(global_config) do (key,val); key != "categories" end 
-    merge!(cat_config, yaml_cat)
-    cat_config
+function get_default_config()
+    Dict(
+        "roi" => "(:,:)",
+        "dir" => pwd(),
+        "files" => String[],
+        "hdu" => 1,
+        "suffixes" => [".fits", ".fits.gz", ".fits.Z"],
+        "include subdirectory" => true,
+        "exclude files" => String[],
+        "exptime" => "EXPTIME",
+        "typefloat" => Float32)
 end
 
 """
-    read_calibration_files(yaml_file::AbstractString, ::Type{T}=Float32; kwds...) -> CalibrationData
+    read_calibration_files(yaml_file::AbstractString, config=Dict(); kwds...) -> CalibrationData
 
-Process calibration files according to the YAML configuration file `yaml_file`.
+Alias of `read_calibration_files` with a YAML file path.
+"""
+function read_calibration_files(yaml_file::AbstractString,
+                                config=Dict(),
+                                ; reset::Bool=true,
+                                  prune::Bool=true,
+                                  write_result_yaml::String="",
+                                  verbose::Bool=false)
+    yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
+    read_calibration_files!(yaml, config; reset, prune, write_result_yaml, verbose)
+end
+
+"""
+    read_calibration_files(yaml::AbstractDict, config=Dict(); kwds...) -> CalibrationData
+
+Process calibration files according to the `yaml` configuration.
+
+Any parameter set in `config` takes precedence over the YAML one.
 
 # Keyword parameters
-- `reset_selected_files=true`: by default, we will read files given in `dir`, and associate files to categories. However the input YAML is allowed to have existing "selected files" fields in its categories. `reset_selected_files=true` will reset these fields before searching for files.
-- `roi=(:,:)`: take only a region of interest of the input FITS files (e.g. `roi=(1:100,1:2:100)`). It's called "roi" because the input files may already have a ROI (some instruments allow it). There is no method to extract the ROI from the input FITS files yet.
-- `dir=pwd()`: directory containing the files.This keyword is overriden by the `dir` in the YAML config file.
+- `reset=true`: by default, we will read files given in `dir`, and associate files to categories. However the input YAML is allowed to have existing "selected files" fields in its categories. `reset=true` will reset these fields before searching for files.
 - `prune=true`: remove empty categories and sources
 - `write_result_yaml=""`: if a non-empty path is given, the result YAML (with the fields "selected files" filled) will be written to this path.
 
 Return an instance of `CalibrationData` with all information statistics needed to calibrate the detector.
 """
-function read_calibration_files(yaml_file::AbstractString,
-                                ::Type{T}=Float32,
-                                ; reset_selected_files::Bool=true,
-                                  roi = (:,:),
-                                  dir = pwd(),
-                                  prune::Bool=true,
-                                  write_result_yaml::String="",
-                                  verbose::Bool=false) where {T<:AbstractFloat}
-    yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
-    read_calibration_files!(yaml, T; reset_selected_files, roi, dir, prune, write_result_yaml, verbose)
-end
-
 function read_calibration_files!(yaml::AbstractDict,
-                                 ::Type{T}=Float32,
-                                 ; reset_selected_files::Bool=true,
-                                   roi = (:,:),
-                                   dir = pwd(),
+                                 config=Dict()
+                                 ; reset::Bool=true,
                                    prune::Bool=true,
                                    write_result_yaml::String="",
-                                   verbose::Bool=false) where {T<:AbstractFloat}
-    reset_selected_files!(yaml)
-    select_files!(yaml; roi, dir, verbose)
+                                   verbose::Bool=false)
+    reset && reset_selected_files!(yaml)
+    select_files!(yaml, config; verbose)
     isempty(write_result_yaml) || YAML.write_file(normpath(write_result_yaml), yaml)
-    calib_data = yaml_to_calibration_data(yaml, T; roi, dir, prune)
+    calib_data = yaml_to_calibration_data(yaml, config; prune)
 end
 
 function reset_selected_files!(yaml::AbstractDict)
@@ -375,33 +369,23 @@ function reset_selected_files!(yaml::AbstractDict)
     yaml
 end
 
-function select_files!(yaml_file::AbstractString,
-              ; roi = (:,:),
-                dir = pwd(),
-                files = String[],
-                include_subdirectory::Bool=true,
-                verbose::Bool=false)
+function select_files!(yaml_file::AbstractString, config=Dict(); verbose=false)
     yaml = YAML.load_file(normpath(yaml_file); dicttype=Dict{String,Any})
-    select_files!(yaml; roi, dir, files, include_subdirectory, verbose)
+    select_files!(yaml, config; verbose)
 end
 
-function select_files!(yaml::AbstractDict,
-                       ; roi = (:,:),
-                         dir = pwd(),
-                         files = String[],
-                         include_subdirectory::Bool=true,
-                         verbose::Bool=false)
+function select_files!(yaml::AbstractDict, config=Dict(); verbose=false)
 
-    global_config = get_global_config(dir, repr(roi))
-    global_config["files"] = files
-    global_config["include subdirectory"] = include_subdirectory
+    global_config = get_default_config()
     merge!(global_config, yaml)
-
+    merge!(global_config, config)
+    
     # we keep encountered FITS headers in a cache, so we have at most one I/O call by file
     headers_cache = Dict{String, FitsHeader}()
 
     for (catname,yaml_cat) in yaml["categories"]
-        cat_config = get_category_config(global_config, yaml_cat)
+        cat_config = copy(global_config)
+        merge!(cat_config, yaml_cat)
         verbose && @info "starting category \"$catname\""
 
         cat_filepaths = gather_filepaths_cat(cat_config)
@@ -435,13 +419,12 @@ function select_files!(yaml::AbstractDict,
 end
 
 function yaml_to_calibration_data(yaml::AbstractDict,
-                                  ::Type{T}=Float32
-                                  ; roi = (:,:),
-                                    dir = pwd(),
-                                    prune::Bool=true) where {T<:AbstractFloat}
+                                  config=Dict()
+                                  ; prune::Bool=true)
 
-    global_config = get_global_config(dir, repr(roi))
+    global_config = get_default_config()
     merge!(global_config, yaml)
+    merge!(global_config, config)
     
     # first pass where we:
     # - count the number of files
@@ -454,8 +437,8 @@ function yaml_to_calibration_data(yaml::AbstractDict,
     resolved_roi = nothing
     calib_cats = CalibrationCategory[]
     for (catname, yaml_cat) in yaml["categories"]
-        cat_config = get_category_config(global_config, yaml_cat)
-        
+        cat_config = copy(global_config)
+        merge!(cat_config, yaml_cat)
 
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             nb_files += length(fitspaths)
@@ -475,12 +458,14 @@ function yaml_to_calibration_data(yaml::AbstractDict,
 
     iszero(nb_files) && throw(ArgumentError("no calibration file"))
 
+    T = global_config["typefloat"]
     calib_data = CalibrationData{T}(resolved_roi, calib_cats)
     
     # second pass where we read the data from FITS files
     progress = Progress(nb_files; desc="reading calibration files")
     for (catname, yaml_cat) in yaml["categories"]
-        cat_config = get_category_config(global_config, yaml_cat)
+        cat_config = copy(global_config)
+        merge!(cat_config, yaml_cat)
         
         for (Δt, fitspaths) in get(yaml_cat, "selected files", [])
             for fitspath in fitspaths
