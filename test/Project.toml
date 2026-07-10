@@ -2,9 +2,9 @@
 AstroFITS = "34e54ef0-c5bf-48ab-9e5d-cca51f35ed77"
 AstronomicalDetectors = "482535f4-4eff-4998-8428-5ff2b5e59f9e"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
-StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
+OnlineSampleStatistics = "455218f6-ed6f-43e9-ad07-c481a1567983"
 
 [sources]
 AstronomicalDetectors = {path = ".."}

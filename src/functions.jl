@@ -1,16 +1,3 @@
-module YAMLCalibrationFiles
-
-using AstroFITS
-using AstroFITS: FitsFile, FitsHeader, FitsImageHDU, readfits
-using ScientificDetectors
-using YAML
-using ScientificDetectors:CalibrationFrameSampler
-using Dates
-import ScientificDetectors.Calibration: prunecalibration
-using ProgressMeter
-using OnlineSampleStatistics
-
-
 function gather_filepaths(
     paths ::Vector{String}
     ; level::Int=0,
@@ -506,7 +493,7 @@ function yaml_to_calibration_data(yaml::AbstractDict,
     finish!(progress)
 
     if prune
-        calib_data = prunecalibration(calib_data)
+        calib_data = ScientificDetectors.Calibration.prunecalibration(calib_data)
     end
 
     calib_data
@@ -564,6 +551,4 @@ function read_sampler(fitspath::String,
         
         sampler
     end
-end
-
 end
