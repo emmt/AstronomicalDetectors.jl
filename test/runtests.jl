@@ -103,7 +103,7 @@ end
                """
         write(pathyaml, yaml)
         writefits!(pathfits, hdr, Int[0 0 ; 0 0])
-        read_calibration_files(pathyaml; dir=pathdir)
+        read_calibration_files(pathyaml, Dict("dir"=>pathdir))
 
     end end end
 end

@@ -29,7 +29,6 @@ dir: alice/calibration-files/
 `dir` is the name of the setting and `alice/calibration-files/` is the value of the setting.
 This one tells AstronomicalDetectors the folder in which to look for FITS files.
 
-The setting `exptime` is mandatory.
 
 ### Global Filters
 
@@ -53,9 +52,12 @@ Where you describe the categories. A category has the following structure:
 
 ```
 categories:
-    NAME:
-        category settings
-        category filters
+    MY_CATEGORY_NAME:
+        dir: "my-category-folder"
+        ... others settings
+        "MY KEYWORD": TRUE
+        ... other filters
+        sources: cat_main_src + dark_src
 ```
 `categories:` is the line announcing the categories section, you write it only once in the file.
 
@@ -75,6 +77,14 @@ You must indent categories (with spaces, tabs are forbidden).
 
 Any category setting hides any global setting of the same name. It is the same for filters.
 
+### Overwriting settings and filters
+
+Every setting has a default value, apart from the `sources` settings for categories.
+
+From the Julia API, the user can overwrite global YAML settings, by giving some explicitly to the Julia function. For example he can overwrite the global "include subdirectory" setting.
+
+Any setting or filter defined in a category takes precedence over the eventually existing global one. For example if you set the "dir" in a category, it will be this for this category, no matter any other settings for "dir" elsewhere.
+
 ## Available Settings
 
 Names of the settings must be in lower case.
@@ -85,8 +95,6 @@ The setting `exptime` gives a keyword name, that keyword must contain the inform
 integration time.
 
 Type is `String`.
-
-Mandatory (it has no default value).
 
 ### sources
 
@@ -113,8 +121,7 @@ The setting `dir` instructs in which folder to look. Absolute and relative paths
 
 Type is `String`.
 
-When unspecified, the one given to the Julia function is used, and when also unspecified,
-working directory is used.
+Default is `pwd()`.
 
 ### include subdirectory
 
@@ -122,7 +129,7 @@ The setting `include subdirectory`, if `true`, instructs to search in the sub fo
 
 Type is `Bool`.
 
-When unspecified, `true` is used.
+Default is `true`.
 
 ### hdu
 
@@ -130,7 +137,7 @@ The setting `hdu` gives the number of the FITS HeaderDataUnit to use.
 
 Type is `Int`.
 
-When unspecified, `1` is used, which points to the primary HDU.
+Default is `1`, which points to the primary HDU.
 
 ### suffixes
 
@@ -139,7 +146,7 @@ in at least one of the given `String` is kept.
 
 Type is `List of String`.
 
-When unspecified, `[.fits, .fits.gz, .fits.Z]` is used.
+Default is `[.fits, .fits.gz, .fits.Z]`.
 
 ### exclude files
 
@@ -148,7 +155,7 @@ filename contains at least one of the given `String` is rejected.
 
 Type is `List of String`
 
-When unspecified, `[]` is used.
+Default is `[]`.
 
 ### roi
 
@@ -157,21 +164,19 @@ The setting `roi` gives the Region Of Interest of the detector.
 Type is `List of String of size 2`. But the `String` is in the form of a Julia `UnitRange`, for
 example `100:493`.
 
-When unspecified, the one given to the Julia function is used, and when also unspecified, `[:, :]`
-is used, which means the whole array is used.
+Default is "(:,:)" which means the whole detector matrix, whatever its size.
 
-Only global setting.
+You must use the same ROI for every category, otherwise the program fails.
 
 ### files
 
 The setting `files` gives a list of additional files to take.
 
 They are still subject to the settings `exclude files` and `suffixes`.
-A category setting for `files` hides a global setting for `files`.
 
 Type is `List of String`.
 
-When unspecified, `[]` is used.
+Default is `[]`.
 
 ## Available Filters
 

@@ -44,24 +44,24 @@ categories:
     sources: dark + wave
 ```
 
-The mandatory keywords are:
+The mandatory parts are:
 
-- `exptime` : the FITS keyword containing the integration time
 - `categories` : lists all calibration categories (e.g. FLAT, DARK,...)
 - `sources` : the sources corresponding to the parent category (mandatory for each category).
 
 In this example, the calibration files are identified by their `ESO DPR TYPE` keyword.  If several values are allowed, they can be given in a array (as for the `WAVE` category in this example). If several keywords are given (as for the `FLAT` category) all of them must be valid. A date range can also be given, see more info below.
 
-Optional keywords are:
+Possible settings are:
 
-- `dir` :  the folder containing the calibration files (default `pwd`),
-- `files` : list of files or pattern,
-- `suffixes` : suffixes of the files  (default `[.fits, .fits.gz,.fits.Z]`),
-- `include subdirectory` : if `true` parse all subdirectories
-- `exclude files` : patterns of files that must be excluded
+- `dir` :  the folder containing the calibration files (default `pwd()`),
+- `files` : additional list of files paths to look for,
+- `suffixes` : restricted suffixes for the files paths  (default `[.fits, .fits.gz,.fits.Z]`),
+- `include subdirectory` : if `true` parse all subdirectories (default `true`)
+- `exclude files` : substrings of files paths that are excluded (default empty list).
 - `hdu` : name of the FITS HDU that contains the data (default `primary`).
+- `typefloat`: floating type to use for `CalibrationData`, default `Float32`.
 
-All the keywords given in the root of the file are set for all the categories (as `suffixes` in the example) but this can be overiden by keywords in each category (as `exptime` in the example).
+These settings have default values. The user can overwrite the global settings by giving some explicitly in the `config` parameter of the `read_calibration_files` function. Moreover, every setting defined *inside* a category takes precedence.
 
 It is possible to restrict the calibration files by a range of dates:
 ```yaml
