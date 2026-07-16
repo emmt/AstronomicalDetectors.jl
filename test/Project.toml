@@ -8,3 +8,6 @@ OnlineSampleStatistics = "455218f6-ed6f-43e9-ad07-c481a1567983"
 
 [sources]
 AstronomicalDetectors = {path = ".."}
+
+[compat]
+YAML = "0.4.16"
