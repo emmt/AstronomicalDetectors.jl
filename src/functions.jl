@@ -519,7 +519,7 @@ function read_sampler(fitspath::String,
             stat = read(IndependentStatistic, fits; ext)
             # applying roi if needed
             if axes(roi,1) != Base.OneTo(size(stat,1)) || axes(roi,2) != Base.OneTo(size(stat,2))
-                stat = build_from_rawmoments(
+                stat = OnlineSampleStatistics.build_from_rawmoments(
                     nobs(stat)[axes(roi)...],
                     (get_rawmoments(stat,1)[axes(roi)...],
                      get_rawmoments(stat,2)[axes(roi)...]))
