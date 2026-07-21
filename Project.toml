@@ -1,7 +1,7 @@
 name = "AstronomicalDetectors"
 uuid = "482535f4-4eff-4998-8428-5ff2b5e59f9e"
-version = "0.1.0"
 authors = ["Éric Thiébaut <eric.thiebaut@univ-lyon1.fr> and contributors"]
+version = "0.2.0"
 
 [workspace]
 projects = ["test"]
@@ -19,6 +19,6 @@ AstroFITS = "1"
 Dates = "1"
 OnlineSampleStatistics = ">= 0.3.4"
 ProgressMeter = "1.11.0"
-ScientificDetectors = "0.3"
+ScientificDetectors = "0.4"
 YAML = "0.4"
 julia = "1.10"
