@@ -10,4 +10,5 @@ OnlineSampleStatistics = "455218f6-ed6f-43e9-ad07-c481a1567983"
 AstronomicalDetectors = {path = ".."}
 
 [compat]
+AstroFITS = "1.2.0"
 YAML = "0.4.16"
