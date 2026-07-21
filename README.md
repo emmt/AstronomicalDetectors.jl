@@ -1,4 +1,6 @@
-# AstronomicalDetectors [![Build Status](https://travis-ci.com/emmt/AstronomicalDetectors.jl.svg?branch=main)](https://travis-ci.com/emmt/AstronomicalDetectors.jl) [![Build Status](https://ci.appveyor.com/api/projects/status/github/emmt/AstronomicalDetectors.jl?svg=true)](https://ci.appveyor.com/project/emmt/AstronomicalDetectors-jl) [![Coverage](https://codecov.io/gh/emmt/AstronomicalDetectors.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/emmt/AstronomicalDetectors.jl)
+# AstronomicalDetectors
+
+[![Build Status](https://ci.appveyor.com/api/projects/status/github/emmt/AstronomicalDetectors.jl?svg=true)](https://ci.appveyor.com/project/emmt/AstronomicalDetectors-jl) [![Coverage](https://codecov.io/gh/emmt/AstronomicalDetectors.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/emmt/AstronomicalDetectors.jl)
 
 `AstronomicalDetectors` is a Julia package to deal with the calibration files
 of astronomical detectors like those of the VLT/Sphere instrument.
@@ -70,4 +72,3 @@ DATE-OBS:
     max: 2022-04-13T12:24:10.003
 ```
 Only files respecting `min <= file["DATE-OBS"] < max` are kept.
-
