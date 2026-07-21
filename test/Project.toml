@@ -11,3 +11,4 @@ AstronomicalDetectors = {path = ".."}
 
 [compat]
 AstroFITS = "1.2.0"
+YAML = "0.4.16"
