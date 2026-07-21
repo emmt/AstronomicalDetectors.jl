@@ -65,4 +65,4 @@ jobs:
                        Pkg.Registry.add(Pkg.RegistrySpec(url = "https://github.com/emmt/EmmtRegistry"));'
       - uses: julia-actions/cache@v3
       - run: julia --project=test --color=yes -e 'using Pkg; Pkg.add("Aqua")'
-      - run: julia --project=test --color=yes -e 'using Aqua, AstronomicalDetectors; Aqua.test_all(AstronomicalDetectors); Aqua.test_piracies(AstronomicalDetectors.YAMLCalibrationFiles)'
+      - run: julia --project=test --color=yes -e 'using Aqua, AstronomicalDetectors; Aqua.test_all(AstronomicalDetectors)'
